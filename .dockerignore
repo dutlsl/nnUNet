@@ -1,0 +1,14 @@
+.git/
+.agents/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.nii.gz
+Openedsdata2019/
+nnUNet_raw/
+nnUNet_preprocessed/
+wandb/
+*.log
+gaze_results/
+/tmp/
