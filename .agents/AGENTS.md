@@ -23,3 +23,12 @@ This workspace uses a specific Python virtual environment for all development, t
    - For ANY command or training/evaluation task with an expected execution time of **1 hour or longer**, NEVER run it as a standard session-dependent background process.
    - You MUST run it as a detached process using `nohup` (e.g., `nohup <command> > <log_file> 2>&1 &`) so that it survives IDE restarts, agent session terminations, or terminal disconnections.
 
+4. **Research Code Generation Harness (Mandatory)**:
+   - When generating or modifying project code for research/training (especially for `eyeball-3d-research` and core models), you MUST strictly follow the **Research Code Generation Harness** (`.agents/skills/research-code-harness/SKILL.md`).
+   - **Key Rules**:
+     1. **Strict Config Separation**: No hardcoded constants, paths, crop bounds, or hyperparameters in `.py` files. All options must come from YAML configs.
+     2. **Unidirectional Modularization**: `datasets/` -> `models/` -> `losses/` -> `train.py`. NEVER define Loss or Dataset classes inline inside `train.py`.
+     3. **Ablation Switch Architecture**: Control all experimental variants via config flags (`cfg.ablation.use_*`). Do NOT create split training scripts (`train_variant.py`). Use a single `train.py` with `--config`.
+     4. **Reproducibility**: Set seeds, save config snapshots, and log full config metadata in checkpoints.
+
+
