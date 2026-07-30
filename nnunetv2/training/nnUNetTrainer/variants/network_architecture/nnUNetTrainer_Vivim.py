@@ -1,11 +1,11 @@
 import os
 import sys
 import torch
-from torch import nn
+from torch import nn, autocast
 from torch.utils.data import DataLoader
-from torch.cuda.amp import autocast
 from datetime import datetime
 import wandb
+from nnunetv2.utilities.helpers import dummy_context
 
 # Ensure project root is in sys.path
 sys.path.insert(0, '/home/iulab0/PycharmProjects/nnUNet')
@@ -247,7 +247,7 @@ class nnUNetTrainer_Vivim(nnUNetTrainer):
 
         self.optimizer.zero_grad(set_to_none=True)
 
-        with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else torch.no_grad():
+        with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
             output = self.network(data)
 
             # Handle multi-task output
@@ -259,7 +259,7 @@ class nnUNetTrainer_Vivim(nnUNetTrainer):
                 eyeball_logits = None
 
             # Primary segmentation loss
-            total_loss = self.seg_loss(seg_logits, target.squeeze(1))
+            total_loss = self.seg_loss(seg_logits, target.squeeze(1).long())
 
             # WeakMEd eyeball loss
             weakmed_losses = {}
@@ -297,7 +297,7 @@ class nnUNetTrainer_Vivim(nnUNetTrainer):
         target = batch['target'].to(self.device, non_blocking=True)
 
         with torch.no_grad():
-            with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else torch.no_grad():
+            with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
                 output = self.network(data)
 
                 if isinstance(output, dict):
@@ -305,7 +305,7 @@ class nnUNetTrainer_Vivim(nnUNetTrainer):
                 else:
                     seg_logits = output
 
-                val_loss = self.seg_loss(seg_logits, target.squeeze(1))
+                val_loss = self.seg_loss(seg_logits, target.squeeze(1).long())
 
         # Compute pseudo dice for online evaluation
         predicted = seg_logits.argmax(dim=1)

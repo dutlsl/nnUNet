@@ -48,6 +48,7 @@ class DiceCELoss(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss()
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long()
         ce = self.ce_loss(logits, target)
 
         probs = F.softmax(logits, dim=1)
