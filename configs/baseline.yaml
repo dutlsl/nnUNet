@@ -1,0 +1,49 @@
+experiment:
+  name: vivim_baseline
+  seed: 42
+
+ablation:
+  use_mamba: true
+  use_weakmed: false
+  use_eyeball_head: false
+
+model:
+  backbone: vivim
+  base_channels: 32
+  num_classes: 4
+  eyeball_head:
+    enabled: false
+  mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+
+data:
+  dataset: openeds_sequence
+  sequence_root: ${DATA_ROOT}/Openedsdata2019/Sequence_Extracted
+  pseudo_label_root: ${DATA_ROOT}/Openedsdata2019/Sequence_PseudoLabels_400
+  temporal_window: 3
+  crop: [120, 520, 0, 400]
+  padded_resolution: [448, 448]
+  normalize:
+    mean: 86.45
+    std: 39.94
+
+training:
+  batch_size: 8
+  epochs: 150
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+  freeze_encoder_epochs: 0
+  early_stopping:
+    patience: 30
+    min_epochs: 50
+
+losses:
+  seg:
+    weight: 1.0
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: baseline

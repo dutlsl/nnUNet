@@ -35,9 +35,11 @@ class VivimBackbone(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         use_mamba: bool = True,
+        use_eyeball_head: bool = False,
     ):
         super().__init__()
         self.use_mamba = use_mamba
+        self.use_eyeball_head = use_eyeball_head
 
         # Encoder stages
         self.enc1 = ConvBlock(in_channels, base_channels)
@@ -72,12 +74,23 @@ class VivimBackbone(nn.Module):
 
         self.final_cls = nn.Conv2d(base_channels, num_classes, kernel_size=1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Eyeball segmentation head: separate 1-class binary mask head (WeakMEd supervised)
+        # Branches from decoder d1 feature, does not interfere with existing 4-class head
+        if self.use_eyeball_head:
+            self.eyeball_head = nn.Sequential(
+                nn.Conv2d(base_channels, base_channels // 2, 3, padding=1, bias=False),
+                nn.BatchNorm2d(base_channels // 2),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Conv2d(base_channels // 2, 1, 1),  # binary eyeball mask logits
+            )
+
+    def forward(self, x: torch.Tensor):
         """
         Args:
             x: [B, T, C, H, W] - Video frame sequence
         Returns:
-            out: [B, Num_Classes, H, W] - Output prediction mask for the last frame
+            If use_eyeball_head=False: [B, Num_Classes, H, W] tensor
+            If use_eyeball_head=True: dict with 'seg' [B, C, H, W] and 'eyeball' [B, 1, H, W]
         """
         B, T, C, H, W = x.shape
 
@@ -119,5 +132,10 @@ class VivimBackbone(nn.Module):
         d1 = self.up1(d2)
         d1 = self.dec1(torch.cat([d1, e1_last], dim=1))
 
-        out = self.final_cls(d1)  # [B, Num_Classes, H, W]
-        return out
+        seg_out = self.final_cls(d1)  # [B, Num_Classes, H, W]
+
+        if self.use_eyeball_head:
+            eye_out = self.eyeball_head(d1)  # [B, 1, H, W]
+            return {'seg': seg_out, 'eyeball': eye_out}
+
+        return seg_out

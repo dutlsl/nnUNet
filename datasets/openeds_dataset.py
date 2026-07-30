@@ -78,6 +78,40 @@ class OpenEDS400SequenceDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
+    @staticmethod
+    def _extract_eyeball_bbox(label: np.ndarray) -> np.ndarray:
+        """
+        Extract tight square bounding box from Sclera(1) ∪ Iris(2) ∪ Pupil(3) region.
+
+        The union of these three classes approximates the visible eyeball area.
+        The tight BB is expanded to a square (max side length) for WeakMEd M2B supervision.
+
+        Args:
+            label: [H, W] — integer class label map (0=BG, 1=Sclera, 2=Iris, 3=Pupil)
+
+        Returns:
+            bbox: [4] — (x1, y1, x2, y2) square bounding box in pixel coordinates
+        """
+        eyeball_mask = (label >= 1)  # Sclera ∪ Iris ∪ Pupil
+        if not eyeball_mask.any():
+            return np.array([0, 0, 0, 0], dtype=np.float32)
+
+        rows = np.where(eyeball_mask.any(axis=1))[0]
+        cols = np.where(eyeball_mask.any(axis=0))[0]
+        y1, y2 = int(rows.min()), int(rows.max()) + 1
+        x1, x2 = int(cols.min()), int(cols.max()) + 1
+
+        # Expand to square (max side length, centered)
+        h, w = y2 - y1, x2 - x1
+        side = max(h, w)
+        cy, cx = (y1 + y2) // 2, (x1 + x2) // 2
+        y1_sq = max(0, cy - side // 2)
+        x1_sq = max(0, cx - side // 2)
+        y2_sq = min(label.shape[0], y1_sq + side)
+        x2_sq = min(label.shape[1], x1_sq + side)
+
+        return np.array([x1_sq, y1_sq, x2_sq, y2_sq], dtype=np.float32)
+
     def __getitem__(self, idx):
         window_files, label_path = self.samples[idx]
         y_start, y_end, x_start, x_end = self.crop
@@ -101,9 +135,13 @@ class OpenEDS400SequenceDataset(Dataset):
         label = np.load(label_path).astype(np.int64)  # [400, 400]
         label_padded = np.pad(label, ((pad_h_half, pad_h_half), (pad_w_half, pad_w_half)), mode='constant', constant_values=0)
 
+        # Extract eyeball square BB from padded label (Sclera ∪ Iris ∪ Pupil)
+        eyeball_bbox = self._extract_eyeball_bbox(label_padded)
+
         return {
-            'images': torch.from_numpy(frames_np).float(),  # [T, 1, 448, 448]
-            'label': torch.from_numpy(label_padded).long(),   # [448, 448]
+            'images': torch.from_numpy(frames_np).float(),       # [T, 1, 448, 448]
+            'label': torch.from_numpy(label_padded).long(),       # [448, 448]
+            'eyeball_bbox': torch.from_numpy(eyeball_bbox).float(),  # [4]
         }
 
 
