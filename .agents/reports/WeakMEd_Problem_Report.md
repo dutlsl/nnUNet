@@ -2,7 +2,7 @@
 
 ## 1. 관측 이미지 및 시각화 종합
 
-![WeakMEd Eyeball Overlay Test Results](file:///home/iulab0/.gemini/antigravity-ide/brain/fad4049b-8b80-4d8e-957f-42b0ca5033c2/test_overlay_result.png)
+![WeakMEd Eyeball Overlay Test Results](file:///home/iulab0/PycharmProjects/nnUNet/.agents/reports/assets/test_overlay_result.png)
 
 ---
 
