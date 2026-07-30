@@ -1,0 +1,13 @@
+{
+    "channel_names": {
+        "0": "grayscale_IR"
+    },
+    "labels": {
+        "background": 0,
+        "sclera": 1,
+        "iris": 2,
+        "pupil": 3
+    },
+    "numTraining": 11319,
+    "file_ending": ".nii.gz"
+}
