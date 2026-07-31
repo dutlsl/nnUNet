@@ -12,111 +12,76 @@
 
 ---
 
-## 2. 모델 아키텍처 및 손실 함수 구성
+## 2. 모델 아키텍처 및 손실 함수 구성 (WeakMed 논문 1:1 대조)
 
-1. **네트워크 백본 (`VivimBackbone`)**:
-   * Pretrained 105개 가중치 로드 완료
-   * 3-frame 시퀀스 입력 ($T=3$, $[B, 3, 1, 448, 448]$)
-2. **구형 기하 헤드 (`SphereHead` + `DifferentiableCircleRenderer`)**:
-   * 안구 형태를 타원 왜곡 없이 $(c_x, c_y, r)$ 3개 스칼라 파라미터로 직접 회귀
-3. **손실 함수 직접 코드 인용 ([`losses/weakmed_loss.py`](file:///home/iulab0/PycharmProjects/nnUNet/losses/weakmed_loss.py))**:
+### 가. 네트워크 백본 및 구형 헤드
+1. **네트워크 백본 (`VivimBackbone`)**: Pretrained 가중치 로드, 3-frame 시퀀스 입력 ($T=3$, $[B, 3, 1, 448, 448]$)
+2. **구형 기하 헤드 (`SphereHead` + `DifferentiableCircleRenderer`)**: 안구 형태를 타원 왜곡 없이 $(c_x, c_y, r)$ 3개 스칼라 파라미터로 직접 회귀
 
+---
+
+### 나. WeakMed 논문 원문 텍스트 vs 구현 코드 1:1 매핑
+
+#### 1. Projection (Eq. 1) & Back-projection (Eq. 2)
+> **[WeakMed Paper Original Quote - Section 3.2]**  
+> *"Given a predicted mask $P \in [0, 1]^{H \times W}$ and a bounding box $[x, y, w, h]$, we first extract the local region $P' = P[x:x+w, y:y+h] \in [0, 1]^{h \times w}$, then perform max pooling along horizontal and vertical directions:*  
+> $$P_w = \max(P', \text{dim}=0) \in [0, 1]^{1 \times w}, \quad P_h = \max(P', \text{dim}=1) \in [0, 1]^{h \times 1} \quad (1)$$  
+> *Using $P_w$ and $P_h$, we reconstruct a box-aligned representation by expanding them to the original patch size:*  
+> $$\hat{P}_w = \mathbf{1}_h \cdot P_w, \quad \hat{P}_h = P_h \cdot \mathbf{1}_w^\top, \quad T' = \min(\hat{P}_w, \hat{P}_h) \quad (2)$$*
+
+**매핑 구현 코드 (`losses/weakmed_loss.py`)**:
 ```python
-class WeakMedSphereLoss(nn.Module):
-    """
-    Combined loss for spherical eyeball WeakMed semi-supervised training.
+# 1. Extract patch P' in [0, 1]^(h x w)
+patch = sphere_mask[b, 0, y1:y2, x1:x2]
+h, w = patch.shape
 
-    Total = w_seg * L_seg + w_m2b * L_m2b + w_contain * L_contain
-    """
-    def __init__(self, num_classes: int = 4):
-        super().__init__()
-        self.seg_loss_fn = DiceCELoss(num_classes=num_classes)
-        self.m2b_loss_fn = M2BLoss()
-        self.containment_loss_fn = ScleraContainmentLoss()
+# 2. Projection (Eq. 1): Max-pooling along columns and rows
+P_w = patch.max(dim=0, keepdim=True).values  # [1, w]
+P_h = patch.max(dim=1, keepdim=True).values  # [h, 1]
 
-    def forward(
-        self,
-        model_output: dict,
-        label: torch.Tensor,
-        eyeball_bbox: torch.Tensor,
-        cfg,
-        current_epoch: int = 0,
-    ) -> dict:
-        losses = {}
-
-        # 1. Supervised 2D Segmentation Loss (Dice + CrossEntropy)
-        seg_logits = model_output['seg_logits']
-        seg_loss = self.seg_loss_fn(seg_logits, label)
-        w_seg = cfg.losses.seg_dice_ce.weight
-        total = w_seg * seg_loss
-
-        # 2. Weakly Supervised M2B Loss (Sphere Mask vs GT Bounding Box)
-        if 'sphere_mask' in model_output and cfg.ablation.use_weakmed:
-            sphere_mask = model_output['sphere_mask']
-            m2b_loss = self.m2b_loss_fn(sphere_mask, eyeball_bbox)
-            w_m2b = cfg.losses.weakmed_m2b.weight
-            total = total + w_m2b * m2b_loss
-
-        # 3. Semi-Supervised Containment Loss (Foreground Containment in Sphere)
-        if ('sphere_mask' in model_output
-                and cfg.ablation.use_sclera_containment
-                and current_epoch >= cfg.losses.sclera_containment.warmup_epochs):
-            containment_loss = self.containment_loss_fn(
-                model_output['sphere_mask'],
-                model_output['seg_logits'],
-            )
-            w_contain = cfg.losses.sclera_containment.weight
-            total = total + w_contain * containment_loss
-
-        losses['total_loss'] = total
-        return losses
+# 3. Back-projection (Eq. 2): Expand & Min outer product -> T'
+T_prime = torch.min(P_w.expand(h, w), P_h.expand(h, w))  # [h, w]
 ```
 
+#### 2. Full-Image Transformation & Box Supervision (Eq. 3)
+> **[WeakMed Paper Original Quote - Section 3.2]**  
+> *"The final transformed mask $T$ is obtained by replacing the corresponding region in $P$ with $T'$. For multiple objects, this transformation is applied independently to each bounding box... The transformed masks $T$ are supervised using the ground-truth box masks $B$. Since both $T$ and $B$ lie in the same box-aligned space, this reduces the mismatch between dense predictions and coarse annotations:*  
+> $$L_{\text{M2B}} = 0.5 [ L_{\text{BCE}}(T, B) + L_{\text{Dice}}(T, B) ] \quad (3)$$*
+
+**매핑 구현 코드 (`losses/weakmed_loss.py`)**:
 ```python
-class M2BLoss(nn.Module):
-    """
-    Strict Mask-to-Box (M2B) transformation loss from WeakMed (CVPR 2025).
-    Formulation: Eq. 1 (Projection), Eq. 2 (Back-projection), Eq. 3 (Full-Image Box Supervision)
-    """
-    def forward(self, sphere_mask: torch.Tensor, eyeball_bbox: torch.Tensor) -> torch.Tensor:
-        for b in range(B):
-            # 1. Extract patch P' in [0, 1]^(h x w)
-            patch = sphere_mask[b, 0, y1:y2, x1:x2]
-            h, w = patch.shape
+# 4. Construct full transformed mask T [H, W] (replacing patch with T')
+T_full = sphere_mask[b, 0].clone()
+T_full[y1:y2, x1:x2] = T_prime
 
-            # 2. Projection (Eq. 1): Max-pool along rows and columns
-            P_w = patch.max(dim=0, keepdim=True).values  # [1, w]
-            P_h = patch.max(dim=1, keepdim=True).values  # [h, 1]
+# 5. Full-image GT Box Mask B (1 inside bbox, 0 outside)
+box_gt = torch.zeros((H, W), device=sphere_mask.device)
+box_gt[y1:y2, x1:x2] = 1.0
 
-            # 3. Back-projection (Eq. 2): Min outer product -> T'
-            T_prime = torch.min(P_w.expand(h, w), P_h.expand(h, w))  # [h, w]
-
-            # 4. Reconstruct full transformed mask T [H, W] (replacing patch with T')
-            T_full = sphere_mask[b, 0].clone()
-            T_full[y1:y2, x1:x2] = T_prime
-
-            # 5. Full-image GT Box Mask B (1 inside bbox, 0 outside)
-            box_gt = torch.zeros((H, W), device=sphere_mask.device)
-            box_gt[y1:y2, x1:x2] = 1.0
-
-            # 6. Supervision (Eq. 3): 0.5 * BCE + 0.5 * Dice on full image (T vs B)
-            bce = F.binary_cross_entropy(T_full.clamp(1e-7, 1.0 - 1e-7), box_gt)
-            dice = 1.0 - (2.0 * (T_full * box_gt).sum() + self.smooth) / (T_full.sum() + box_gt.sum() + self.smooth)
-            sample_loss = 0.5 * bce + 0.5 * dice
-            loss_list.append(sample_loss)
-
-        return torch.stack(loss_list).mean()
+# 6. Supervision (Eq. 3): 0.5 * BCE + 0.5 * Dice on full image (T vs B)
+bce = F.binary_cross_entropy(T_full.clamp(1e-7, 1.0 - 1e-7), box_gt)
+dice = 1.0 - (2.0 * (T_full * box_gt).sum() + self.smooth) / (T_full.sum() + box_gt.sum() + self.smooth)
+m2b_loss = 0.5 * bce + 0.5 * dice
 ```
 
-```python
-class ScleraContainmentLoss(nn.Module):
-    """Enforces that 2D foreground predictions lie strictly inside predicted sphere."""
-    def forward(self, sphere_mask: torch.Tensor, seg_logits: torch.Tensor) -> torch.Tensor:
-        seg_probs = F.softmax(seg_logits.detach(), dim=1)
-        foreground_prob = seg_probs[:, 1:, :, :].sum(dim=1, keepdim=True)
-        violation = F.relu(foreground_prob - sphere_mask)
-        return (violation ** 2).mean()
-```
+---
+
+### 다. 논문 원문 중 의도적 제외/미구현 아키텍처 모듈
+
+#### 1. Scale Consistency (SC) Loss 제외
+> **[WeakMed Paper Original Quote - Section 3.3]**  
+> *"Mask-to-Box transformation maps multiple different mask shapes into the same bounding box representation, creating a many-to-one ambiguity. To resolve this ambiguity, we introduce Scale Consistency (SC) Loss $L_{\text{SC}}$..."*
+
+* **제외 및 변형 사유**:
+  - 논문 원문의 SC Loss는 자유도가 높은 2D Conv 마스크의 다대일 형상 모호성(Many-to-one shape ambiguity)을 해결하기 위해 도입되었습니다.
+  - 본 모델 구현에서는 `SphereHead`가 안구 형태를 3개 스칼라 파라미터 $(c_x, c_y, r)$로 파라미터화된 **수학적 완전 구형(Sphere) 원형 마스크**로 직접 변환하므로 형상 모호성이 구조적으로 차단됩니다. 따라서 SC Loss는 필요하지 않아 의도적으로 제외되었습니다.
+
+#### 2. Causal Optimal Transport (Causal-OT) Unsupervised Domain Adaptation 제외
+> **[WeakMed Paper Original Quote - Section 3.4]**  
+> *"To bridge the domain gap between source and target domains, we incorporate Causal Optimal Transport..."*
+
+* **제외 사유**:
+  - Causal-OT 모듈은 비지도 도메인 적응(UDA)을 위한 컴포넌트로, 본 지도학습/약한 지도학습 안구 구조 세그멘테이션 세션(`weakmed-v2`)의 연구 범위를 벗어나므로 구현에서 제외되었습니다.
 
 ---
 
