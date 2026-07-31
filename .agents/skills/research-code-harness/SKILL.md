@@ -7,7 +7,7 @@ description: Mandatory rules, architectural constraints, directory layout, and c
 
 > **목적**: AI 에이전트가 연구용 코드를 생성할 때 반드시 준수해야 할 구조적 규칙과 금지사항을 정의한다.  
 > **적용 범위**: `eyeball-3d-research` 프로젝트 및 이후 파생 연구 브랜치 전체  
-> **작성 근거**: `feature/temporal-convlstm`, `weakmed-v2` 브랜치 실험 과정에서 발생한 시행착오 분석
+> **작성 근거**: `feature/temporal-convlstm` 브랜치 실험 과정에서 발생한 시행착오 분석
 
 ---
 
