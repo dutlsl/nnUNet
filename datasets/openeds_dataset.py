@@ -104,6 +104,38 @@ class OpenEDS400SequenceDataset(Dataset):
 
         return np.array([x1_sq, y1_sq, x2_sq, y2_sq], dtype=np.float32)
 
+    @staticmethod
+    def _extract_eyeball_circle(label: np.ndarray) -> np.ndarray:
+        """
+        Extract circumscribed circle (cx, cy, r) from Sclera(1) ∪ Iris(2) ∪ Pupil(3).
+        The circle is the smallest enclosing circle of the foreground region,
+        approximated by the circumscribed circle of the bounding box.
+
+        Since the eyeball is a perfect sphere, this provides a reasonable pseudo-GT
+        for evaluating the sphere head's predictions.
+
+        Returns:
+            np.array([cx, cy, r], dtype=np.float32) in pixel coordinates
+        """
+        eyeball_mask = (label >= 1)
+        if not eyeball_mask.any():
+            return np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
+        rows = np.where(eyeball_mask.any(axis=1))[0]
+        cols = np.where(eyeball_mask.any(axis=0))[0]
+        y1, y2 = int(rows.min()), int(rows.max()) + 1
+        x1, x2 = int(cols.min()), int(cols.max()) + 1
+
+        # Center of the foreground region
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+
+        # Radius: half of the max side (since eyeball is a sphere → circle)
+        h, w = y2 - y1, x2 - x1
+        r = max(h, w) / 2.0
+
+        return np.array([cx, cy, r], dtype=np.float32)
+
     def __getitem__(self, idx):
         window_files, label_path = self.samples[idx]
         y_start, y_end, x_start, x_end = self.crop
@@ -129,11 +161,14 @@ class OpenEDS400SequenceDataset(Dataset):
 
         # Extract eyeball square BB from padded label (Sclera ∪ Iris ∪ Pupil)
         eyeball_bbox = self._extract_eyeball_bbox(label_padded)
+        # Extract circumscribed circle pseudo-GT for evaluation
+        eyeball_circle = self._extract_eyeball_circle(label_padded)
 
         return {
-            'images': torch.from_numpy(frames_np).float(),       # [T, 1, 448, 448]
-            'label': torch.from_numpy(label_padded).long(),       # [448, 448]
-            'eyeball_bbox': torch.from_numpy(eyeball_bbox).float(),  # [4]
+            'images': torch.from_numpy(frames_np).float(),           # [T, 1, 448, 448]
+            'label': torch.from_numpy(label_padded).long(),           # [448, 448]
+            'eyeball_bbox': torch.from_numpy(eyeball_bbox).float(),   # [4] (x1, y1, x2, y2)
+            'eyeball_circle': torch.from_numpy(eyeball_circle).float(),  # [3] (cx, cy, r)
         }
 
 

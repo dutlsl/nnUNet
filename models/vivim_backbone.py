@@ -1,12 +1,14 @@
 """
 Vivim: Video Vision Mamba for Medical Video Segmentation.
 Combines 2D UNet feature extractor with Temporal Mamba Blocks (TMB) at encoder bottleneck.
+Optionally includes a SphereHead for parametric eyeball circle estimation.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.temporal_mamba import TemporalMambaBlock
+from models.sphere_head import SphereHead
 
 
 class ConvBlock(nn.Module):
@@ -35,9 +37,12 @@ class VivimBackbone(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         use_mamba: bool = True,
+        use_sphere_head: bool = False,
+        sphere_head_cfg: dict = None,
     ):
         super().__init__()
         self.use_mamba = use_mamba
+        self.use_sphere_head = use_sphere_head
 
         # Encoder stages
         self.enc1 = ConvBlock(in_channels, base_channels)
@@ -72,12 +77,25 @@ class VivimBackbone(nn.Module):
 
         self.final_cls = nn.Conv2d(base_channels, num_classes, kernel_size=1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Optional Sphere Head for parametric eyeball estimation
+        if self.use_sphere_head and sphere_head_cfg is not None:
+            self.sphere_head = SphereHead(
+                feature_dim=base_channels * 8,
+                hidden_dim=sphere_head_cfg.get('hidden_dim', 128) if isinstance(sphere_head_cfg, dict) else getattr(sphere_head_cfg, 'hidden_dim', 128),
+                max_radius=sphere_head_cfg.get('max_radius', 200.0) if isinstance(sphere_head_cfg, dict) else getattr(sphere_head_cfg, 'max_radius', 200.0),
+                min_radius=sphere_head_cfg.get('min_radius', 30.0) if isinstance(sphere_head_cfg, dict) else getattr(sphere_head_cfg, 'min_radius', 30.0),
+                sharpness=sphere_head_cfg.get('sharpness', 20.0) if isinstance(sphere_head_cfg, dict) else getattr(sphere_head_cfg, 'sharpness', 20.0),
+            )
+
+    def forward(self, x: torch.Tensor) -> dict:
         """
         Args:
             x: [B, T, C, H, W] - Video frame sequence
         Returns:
-            out: [B, Num_Classes, H, W] - Output prediction mask for the last frame
+            dict with:
+                'seg_logits': [B, Num_Classes, H, W] - Segmentation logits
+                'sphere_params': [B, 3] - (cx, cy, r) if sphere_head enabled
+                'sphere_mask': [B, 1, H, W] - Rendered circle mask if sphere_head enabled
         """
         B, T, C, H, W = x.shape
 
@@ -119,5 +137,14 @@ class VivimBackbone(nn.Module):
         d1 = self.up1(d2)
         d1 = self.dec1(torch.cat([d1, e1_last], dim=1))
 
-        out = self.final_cls(d1)  # [B, Num_Classes, H, W]
-        return out
+        seg_logits = self.final_cls(d1)  # [B, Num_Classes, H, W]
+
+        result = {'seg_logits': seg_logits}
+
+        # Sphere Head branch (from bottleneck features)
+        if self.use_sphere_head and hasattr(self, 'sphere_head'):
+            sphere_out = self.sphere_head(b_last, H=H, W=W)
+            result['sphere_params'] = sphere_out['params']  # [B, 3]
+            result['sphere_mask'] = sphere_out['mask']       # [B, 1, H, W]
+
+        return result

@@ -1,0 +1,73 @@
+# ==============================================================================
+# Spherical Eyeball WeakMEd Semi-Supervised Training Config
+# ==============================================================================
+# This config implements:
+#   1. Supervised 2D segmentation (DiceCE) on pseudo-labels
+#   2. WeakMEd M2B loss on parametric sphere head
+#   3. Semi-supervised Sclera Containment loss
+#   SC Loss is intentionally excluded (no shape ambiguity for circles)
+# ==============================================================================
+
+experiment:
+  name: vivim_weakmed_sphere
+  seed: 42
+
+data:
+  dataset: openeds_sequence
+  sequence_root: ${DATA_ROOT}/Openedsdata2019/Sequence_Extracted
+  pseudo_label_root: ${DATA_ROOT}/Openedsdata2019/Sequence_PseudoLabels_400
+  temporal_window: 3
+  crop: [120, 520, 0, 400]
+  padded_resolution: [448, 448]
+  normalize:
+    mean: 86.45
+    std: 39.94
+
+model:
+  backbone: vivim
+  num_classes: 4
+  base_channels: 32
+  mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+  sphere_head:
+    hidden_dim: 128
+    max_radius: 200.0
+    min_radius: 30.0
+    sharpness: 20.0
+    sharpness_max: 50.0
+    sharpness_anneal_epochs: 50
+
+training:
+  batch_size: 8
+  epochs: 150
+  num_iterations_per_epoch: 250
+  num_val_iterations_per_epoch: 50
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+  early_stopping:
+    patience: 30
+    min_epochs: 50
+  # Path to pre-trained checkpoint (seg head weights only)
+  pretrained_checkpoint: "/home/iulab0/PycharmProjects/nnUNet/nnUNet_results/vivim_weakmed_400x400/checkpoint_best.pth"
+
+losses:
+  seg_dice_ce:
+    weight: 1.0
+  weakmed_m2b:
+    weight: 1.0
+  sclera_containment:
+    weight: 0.5
+    warmup_epochs: 10
+
+ablation:
+  use_mamba: true
+  use_weakmed: true
+  use_sphere_head: true
+  use_sclera_containment: true
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: weakmed_sphere
