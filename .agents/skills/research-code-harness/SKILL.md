@@ -7,7 +7,7 @@ description: Mandatory rules, architectural constraints, directory layout, and c
 
 > **목적**: AI 에이전트가 연구용 코드를 생성할 때 반드시 준수해야 할 구조적 규칙과 금지사항을 정의한다.  
 > **적용 범위**: `eyeball-3d-research` 프로젝트 및 이후 파생 연구 브랜치 전체  
-> **작성 근거**: `feature/temporal-convlstm` 브랜치 실험 과정에서 발생한 시행착오 분석
+> **작성 근거**: `feature/temporal-convlstm`, `weakmed-v2` 브랜치 실험 과정에서 발생한 시행착오 분석
 
 ---
 
@@ -17,6 +17,7 @@ description: Mandatory rules, architectural constraints, directory layout, and c
 2. **모듈 간 책임 경계 부재**: Loss 클래스, Dataset 클래스가 `train.py` 내부에 인라인으로 정의되어 다른 모듈에서 재사용 불가능.
 3. **실험 재현성 부재**: 하이퍼파라미터가 함수 기본 인자로만 설정되고, 시드 고정 및 설정 스냅샷 저장이 누락됨.
 4. **환경·의존성 런타임 실패**: `psutil` 등 무단 외부 패키지 import, Deprecated PyTorch API 사용.
+5. **학습 스케줄 임의 간섭 및 평가 셋 혼동**: 커스텀 에폭 컷오프/Early Stopping으로 nnUNet 학습 스케줄을 방해하거나, 검증 셋과 공식 테스트 셋(1,440장)을 혼동하여 보고함.
 
 ---
 
@@ -46,6 +47,12 @@ description: Mandatory rules, architectural constraints, directory layout, and c
 - `torch.amp.autocast('cuda')` 등 최신 API 표준을 준수하고 Deprecated API 사용을 금지한다.
 - 절대 경로를 하드코딩하지 않으며 환경 변수(`DATA_ROOT`) 또는 Config를 통해 주입한다.
 
+### 규칙 6: Native nnUNet Training Schedule 준수 및 Official Test Set 평가 엄수 (핵심)
+- **nnUNet 학습 스케줄 간섭 절대 금지**: `nnUNetTrainer` 및 `nnUNetv2_train` 실행 시 1,000 에폭, PolyLR decay, 250 train / 50 val iteration/epoch 스케줄에 임의로 간섭하거나 커스텀 Early Stopping, Hardcoded Epoch cut-off를 추가하는 행위를 **엄격히 금지**한다. 학습은 반드시 nnUNet 본래 네이티브 스케줄러에 위임한다.
+- **공식 테스트 셋 평가 필수**: 최종 성능 평가는 반드시 **공식 테스트 셋 (`Semantic_Segmentation_Test_Dataset`, 1,440장)**에 대해 진행하며, 검증 셋(validation set)을 최종 테스트 셋으로 보고하지 않는다.
+- **단일 통합 평가 스크립트 유도**: 평가 스크립트는 임시 파편화 스크립트를 생성하지 말고 [`evaluate_test.py`](file:///home/iulab0/PycharmProjects/nnUNet/evaluate_test.py) 단일 파일로 깔끔하게 유지한다.
+- **한국어 전용 보고서 및 디렉토리화**: 모든 실험 결과 보고서는 100% 한국어로 작성하고, 리포지토리 루트에 파일들을 방치하지 않으며 `.agents/reports/Official_Test_Report.md` 및 `.agents/reports/assets/`에 정돈 저장한다.
+
 ---
 
 ## 📌 Part 3. 프로젝트 디렉토리 레이아웃 (`eyeball-3d-research`)
@@ -54,39 +61,39 @@ description: Mandatory rules, architectural constraints, directory layout, and c
 eyeball-3d-research/
 ├── configs/                        # YAML 설정 파일 저장소
 │   ├── baseline.yaml               # Exp 1: 순수 2D→3D 기하 투영
-│   ├── weakmed.yaml                # Exp 2: + WeakMed Loss
-│   ├── causal_ot.yaml              # Exp 3: + Causal-OT 적응
-│   └── proposed_full.yaml          # Exp 4: 최종 제안 (WeakMed + Causal-OT)
+│   ├── weakmed_sphere.yaml         # Exp 2: + WeakMed Sphere Loss
+│   └── proposed_full.yaml          # Exp 3: 최종 제안 모델
 │
 ├── datasets/                       # 데이터 로더 및 전처리
-│   ├── openeds_dataset.py          # OpenEDS 2D 마스크 로더 (4-fold 지원)
-│   └── pupil_labs_dataset.py       # Target 도메인 Pupil Labs 이미지 로더
+│   └── openeds_dataset.py          # OpenEDS 2D 마스크 로더 (Sequence T=3 지원)
 │
 ├── models/                         # 신경망 아키텍처
-│   ├── backbone_2d.py              # 2D 세그멘테이션 백본 (UNet / PVTv2 등)
-│   ├── eyeball_3d_regressor.py     # 3D 안구 파라미터 회귀 헤드
-│   └── projection_layer.py         # 미분 가능한 3D 구체 → 2D 마스크 투영
+│   ├── vivim_backbone.py           # Vivim 백본
+│   └── sphere_head.py              # Differentiable Circle/Sphere Renderer Head
 │
 ├── losses/                         # 손실 함수 모듈
-│   ├── projection_loss.py          # 기본 2D-3D 일치성 손실
-│   ├── weakmed_loss.py             # WeakMed M2B & Scale Consistency
-│   └── causal_ot_loss.py           # Granger 인과 그래프 + Sinkhorn OT
+│   └── weakmed_loss.py             # WeakMed M2B & Sclera Containment Loss
 │
-├── utils/                          # 유틸리티 (시드 고정, 엔트로피, 메트릭)
+├── utils/                          # 유틸리티 (시드 고정, 수식, 메트릭)
 │   ├── seed.py
-│   ├── uncertainty.py
-│   └── metrics.py
+│   ├── sphere_metrics.py           # Circle IoU, 중심 오차, 반지름 오차 계산
+│   └── metrics.py                  # Dice Score 계산
 │
-├── train.py                        # 학습 메인 실행 스크립트 (유일한 엔트리포인트)
-├── evaluate.py                     # 평가 및 Stuck 발생률 검증
-└── main_pipeline.py                # 인퍼런스 및 실시간 상태 버퍼(Prior) 테스트
+├── .agents/reports/                # 표준 보고서 저장소
+│   ├── Official_Test_Report.md     # 한국어 전용 공식 테스트 셋 최종 평가 리포트
+│   └── assets/                     # 시각화 오버레이 이미지 저장소
+│
+├── train.py                        # 학습 메인 스크립트
+└── evaluate_test.py                # 공식 테스트 셋 단일 평가 스크립트
 ```
 
 ---
 
 ## 📌 Part 4. 에이전트 코드 생성 금지 패턴 (Anti-Patterns)
 
+- ❌ nnUNet 학습 스케줄러에 커스텀 Early Stopping이나 Hardcoded Epoch 조기 종료 삽입 금지 → nnUNet 네이티브 1,000 에폭 스케줄 준수
+- ❌ 검증 셋(validation set)을 최종 테스트 셋으로 보고하거나 거짓/옛날 로그 인용 금지 → 공식 테스트 셋(1,440장) 전수 평가
 - ❌ `train.py` 내부에 `class DiceLoss(nn.Module):` 인라인 선언 금지 → `losses/`로 분리
 - ❌ `img[120:520, 0:400]` 크롭 좌표나 `86.45` 정규화값 리터럴 작성 금지 → Config로 분리
-- ❌ `train_baseline.py`, `train_weakmed.py` 등 실험별 파편화 파일 생성 금지 → `train.py --config configs/*.yaml` 활용
-- ❌ `/home/iulab0/...` 절대 경로 하드코딩 금지 → `cfg.data.root` 활용
+- ❌ `train_baseline.py`, `train_weakmed.py` 등 실험별 파편화 파일 생성 금지 → `train.py --config configs/*.yaml` 또는 native `nnUNetv2_train` 활용
+- ❌ `/home/iulab0/...` 절대 경로 하드코딩 금지 → `cfg.data.root` 또는 환경변수 주입
