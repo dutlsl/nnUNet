@@ -74,24 +74,38 @@ class WeakMedSphereLoss(nn.Module):
 
 ```python
 class M2BLoss(nn.Module):
-    """Mask-to-Box (M2B) transformation loss from WeakMed (CVPR 2025)."""
+    """
+    Strict Mask-to-Box (M2B) transformation loss from WeakMed (CVPR 2025).
+    Formulation: Eq. 1 (Projection), Eq. 2 (Back-projection), Eq. 3 (Full-Image Box Supervision)
+    """
     def forward(self, sphere_mask: torch.Tensor, eyeball_bbox: torch.Tensor) -> torch.Tensor:
-        # Patch extraction within bbox
-        patch = sphere_mask[b, 0, y1:y2, x1:x2]
-        h, w = patch.shape
+        for b in range(B):
+            # 1. Extract patch P' in [0, 1]^(h x w)
+            patch = sphere_mask[b, 0, y1:y2, x1:x2]
+            h, w = patch.shape
 
-        # M2B Projection (Eq. 1): Max-pool along rows and columns
-        P_w = patch.max(dim=0, keepdim=True).values  # [1, w]
-        P_h = patch.max(dim=1, keepdim=True).values  # [h, 1]
+            # 2. Projection (Eq. 1): Max-pool along rows and columns
+            P_w = patch.max(dim=0, keepdim=True).values  # [1, w]
+            P_h = patch.max(dim=1, keepdim=True).values  # [h, 1]
 
-        # M2B Back-projection (Eq. 2): Outer product via min
-        T_prime = torch.min(P_w.expand(h, w), P_h.expand(h, w))  # [h, w]
-        gt = torch.ones_like(T_prime)
+            # 3. Back-projection (Eq. 2): Min outer product -> T'
+            T_prime = torch.min(P_w.expand(h, w), P_h.expand(h, w))  # [h, w]
 
-        # BCE + Soft Dice
-        bce = F.binary_cross_entropy(T_prime.clamp(1e-7, 1 - 1e-7), gt)
-        dice = 1.0 - (2.0 * (T_prime * gt).sum() + self.smooth) / (T_prime.sum() + gt.sum() + self.smooth)
-        return bce + dice
+            # 4. Reconstruct full transformed mask T [H, W] (replacing patch with T')
+            T_full = sphere_mask[b, 0].clone()
+            T_full[y1:y2, x1:x2] = T_prime
+
+            # 5. Full-image GT Box Mask B (1 inside bbox, 0 outside)
+            box_gt = torch.zeros((H, W), device=sphere_mask.device)
+            box_gt[y1:y2, x1:x2] = 1.0
+
+            # 6. Supervision (Eq. 3): 0.5 * BCE + 0.5 * Dice on full image (T vs B)
+            bce = F.binary_cross_entropy(T_full.clamp(1e-7, 1.0 - 1e-7), box_gt)
+            dice = 1.0 - (2.0 * (T_full * box_gt).sum() + self.smooth) / (T_full.sum() + box_gt.sum() + self.smooth)
+            sample_loss = 0.5 * bce + 0.5 * dice
+            loss_list.append(sample_loss)
+
+        return torch.stack(loss_list).mean()
 ```
 
 ```python

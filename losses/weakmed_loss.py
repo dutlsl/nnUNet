@@ -44,16 +44,18 @@ class DiceCELoss(nn.Module):
 
 class M2BLoss(nn.Module):
     """
-    Mask-to-Box (M2B) transformation loss from the WeakMed paper.
+    Strict Mask-to-Box (M2B) transformation loss from WeakMed paper (CVPR 2025).
 
-    Given a predicted mask and GT bounding box:
-    1. Extract the mask region within the bbox
-    2. Project to 1D via max-pooling along rows and columns
-    3. Back-project to 2D box-aligned representation via outer product (min)
-    4. Supervise the box-aligned representation against a filled bbox GT (all 1s)
-
-    This implementation operates only on bbox patches for memory efficiency
-    and avoids in-place ops for clean autograd support.
+    Mathematical Formulation (Eq. 1, 2, 3):
+    1. Projection (Eq. 1):
+       P_w = max(P', dim=0) in [0, 1]^(1 x w)
+       P_h = max(P', dim=1) in [0, 1]^(h x 1)
+    2. Back-projection (Eq. 2):
+       T_prime = min(P_w.expand(h, w), P_h.expand(h, w)) in [0, 1]^(h x w)
+       T = P with bbox patch replaced by T_prime
+    3. Supervision (Eq. 3):
+       B = full-image box mask (1 inside bbox, 0 outside)
+       L_M2B = 0.5 * L_BCE(T, B) + 0.5 * L_Dice(T, B)
     """
     def __init__(self, smooth: float = 1e-5):
         super().__init__()
@@ -64,20 +66,8 @@ class M2BLoss(nn.Module):
         sphere_mask: torch.Tensor,
         eyeball_bbox: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Compute M2B loss between sphere mask and bounding box GT.
-
-        Args:
-            sphere_mask: [B, 1, H, W] differentiable circle mask in [0, 1]
-            eyeball_bbox: [B, 4] GT bounding box (x1, y1, x2, y2)
-
-        Returns:
-            m2b_loss: scalar loss value (BCE + Dice within bbox)
-        """
         B, _, H, W = sphere_mask.shape
-        bce_sum = torch.tensor(0.0, device=sphere_mask.device)
-        dice_sum = torch.tensor(0.0, device=sphere_mask.device)
-        valid_count = 0
+        loss_list = []
 
         for b in range(B):
             x1 = max(0, int(eyeball_bbox[b, 0].item()))
@@ -88,35 +78,43 @@ class M2BLoss(nn.Module):
             if x2 <= x1 or y2 <= y1:
                 continue
 
-            # Extract patch: [h, w]
+            # 1. Extract patch P' in [0, 1]^(h x w)
             patch = sphere_mask[b, 0, y1:y2, x1:x2]
             h, w = patch.shape
 
-            # M2B Projection (Eq. 1): max-pool along rows and columns
+            # 2. Projection (Eq. 1): max-pool along rows and cols
             P_w = patch.max(dim=0, keepdim=True).values  # [1, w]
             P_h = patch.max(dim=1, keepdim=True).values  # [h, 1]
 
-            # M2B Back-projection (Eq. 2): outer product with min
+            # 3. Back-projection (Eq. 2): min outer product -> T'
             T_prime = torch.min(P_w.expand(h, w), P_h.expand(h, w))  # [h, w]
 
-            # GT is all 1s inside bbox (box mask)
-            gt = torch.ones_like(T_prime)
+            # 4. Construct full transformed mask T [H, W] and GT Box mask B [H, W]
+            T = sphere_mask[b, 0].clone()
+            T_patch_replaced = torch.cat([
+                T[:y1, :],
+                torch.cat([T[y1:y2, :x1], T_prime, T[y1:y2, x2:]], dim=1),
+                T[y2:, :]
+            ], dim=0)
 
-            # BCE
-            bce_sum = bce_sum + F.binary_cross_entropy(
-                T_prime.clamp(1e-7, 1 - 1e-7), gt, reduction='mean')
+            # Full-image ground-truth box mask B (1 inside bbox, 0 outside)
+            box_gt = torch.zeros((H, W), device=sphere_mask.device, dtype=sphere_mask.dtype)
+            box_gt[y1:y2, x1:x2] = 1.0
 
-            # Dice
-            intersection = (T_prime * gt).sum()
-            union = T_prime.sum() + gt.sum()
-            dice_sum = dice_sum + (1.0 - (2.0 * intersection + self.smooth) / (union + self.smooth))
+            # 5. Supervision (Eq. 3): 0.5 * BCE + 0.5 * Dice on full image (T vs B)
+            bce = F.binary_cross_entropy(T_patch_replaced.clamp(1e-7, 1.0 - 1e-7), box_gt)
 
-            valid_count += 1
+            intersection = (T_patch_replaced * box_gt).sum()
+            union = T_patch_replaced.sum() + box_gt.sum()
+            dice = 1.0 - (2.0 * intersection + self.smooth) / (union + self.smooth)
 
-        if valid_count == 0:
+            sample_m2b_loss = 0.5 * bce + 0.5 * dice
+            loss_list.append(sample_m2b_loss)
+
+        if not loss_list:
             return torch.tensor(0.0, device=sphere_mask.device, requires_grad=True)
 
-        return (bce_sum + dice_sum) / valid_count
+        return torch.stack(loss_list).mean()
 
 
 class ScleraContainmentLoss(nn.Module):
