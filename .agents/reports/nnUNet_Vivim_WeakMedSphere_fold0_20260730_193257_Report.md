@@ -24,10 +24,10 @@
 
 #### 1. Projection (Eq. 1) & Back-projection (Eq. 2)
 > **[WeakMed Paper Original Quote - Section 3.2]**  
-> *"Given a predicted mask $P \in [0, 1]^{H \times W}$ and a bounding box $[x, y, w, h]$, we first extract the local region $P' = P[x:x+w, y:y+h] \in [0, 1]^{h \times w}$, then perform max pooling along horizontal and vertical directions:*  
-> $$P_w = \max(P', \text{dim}=0) \in [0, 1]^{1 \times w}, \quad P_h = \max(P', \text{dim}=1) \in [0, 1]^{h \times 1} \quad (1)$$  
-> *Using $P_w$ and $P_h$, we reconstruct a box-aligned representation by expanding them to the original patch size:*  
-> $$\hat{P}_w = \mathbf{1}_h \cdot P_w, \quad \hat{P}_h = P_h \cdot \mathbf{1}_w^\top, \quad T' = \min(\hat{P}_w, \hat{P}_h) \quad (2)$$*
+> Given a predicted mask $P \in [0, 1]^{H \times W}$ and a bounding box $[x, y, w, h]$, we first extract the local region $P' = P[x:x+w, y:y+h] \in [0, 1]^{h \times w}$, then perform max pooling along horizontal and vertical directions:
+> $$P_w = \max(P', \text{dim}=0) \in [0, 1]^{1 \times w}, \quad P_h = \max(P', \text{dim}=1) \in [0, 1]^{h \times 1} \quad (1)$$
+> Using $P_w$ and $P_h$, we reconstruct a box-aligned representation by expanding them to the original patch size:
+> $$\hat{P}_w = \mathbf{1}_h \cdot P_w, \quad \hat{P}_h = P_h \cdot \mathbf{1}_w^\top, \quad T' = \min(\hat{P}_w, \hat{P}_h) \quad (2)$$
 
 **매핑 구현 코드 (`losses/weakmed_loss.py`)**:
 ```python
@@ -45,8 +45,8 @@ T_prime = torch.min(P_w.expand(h, w), P_h.expand(h, w))  # [h, w]
 
 #### 2. Full-Image Transformation & Box Supervision (Eq. 3)
 > **[WeakMed Paper Original Quote - Section 3.2]**  
-> *"The final transformed mask $T$ is obtained by replacing the corresponding region in $P$ with $T'$. For multiple objects, this transformation is applied independently to each bounding box... The transformed masks $T$ are supervised using the ground-truth box masks $B$. Since both $T$ and $B$ lie in the same box-aligned space, this reduces the mismatch between dense predictions and coarse annotations:*  
-> $$L_{\text{M2B}} = 0.5 [ L_{\text{BCE}}(T, B) + L_{\text{Dice}}(T, B) ] \quad (3)$$*
+> The final transformed mask $T$ is obtained by replacing the corresponding region in $P$ with $T'$. For multiple objects, this transformation is applied independently to each bounding box... The transformed masks $T$ are supervised using the ground-truth box masks $B$. Since both $T$ and $B$ lie in the same box-aligned space, this reduces the mismatch between dense predictions and coarse annotations:
+> $$L_{\text{M2B}} = 0.5 \left[ L_{\text{BCE}}(T, B) + L_{\text{Dice}}(T, B) \right] \quad (3)$$
 
 **매핑 구현 코드 (`losses/weakmed_loss.py`)**:
 ```python
