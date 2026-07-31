@@ -19,8 +19,90 @@
    * 3-frame 시퀀스 입력 ($T=3$, $[B, 3, 1, 448, 448]$)
 2. **구형 기하 헤드 (`SphereHead` + `DifferentiableCircleRenderer`)**:
    * 안구 형태를 타원 왜곡 없이 $(c_x, c_y, r)$ 3개 스칼라 파라미터로 직접 회귀
-3. **손실 함수 (`WeakMedSphereLoss`)**:
-   * $\text{Total Loss} = \text{DiceCELoss} + \text{M2BLoss} + 0.5 \times \text{ScleraContainmentLoss}$
+3. **손실 함수 직접 코드 인용 ([`losses/weakmed_loss.py`](file:///home/iulab0/PycharmProjects/nnUNet/losses/weakmed_loss.py))**:
+
+```python
+class WeakMedSphereLoss(nn.Module):
+    """
+    Combined loss for spherical eyeball WeakMed semi-supervised training.
+
+    Total = w_seg * L_seg + w_m2b * L_m2b + w_contain * L_contain
+    """
+    def __init__(self, num_classes: int = 4):
+        super().__init__()
+        self.seg_loss_fn = DiceCELoss(num_classes=num_classes)
+        self.m2b_loss_fn = M2BLoss()
+        self.containment_loss_fn = ScleraContainmentLoss()
+
+    def forward(
+        self,
+        model_output: dict,
+        label: torch.Tensor,
+        eyeball_bbox: torch.Tensor,
+        cfg,
+        current_epoch: int = 0,
+    ) -> dict:
+        losses = {}
+
+        # 1. Supervised 2D Segmentation Loss (Dice + CrossEntropy)
+        seg_logits = model_output['seg_logits']
+        seg_loss = self.seg_loss_fn(seg_logits, label)
+        w_seg = cfg.losses.seg_dice_ce.weight
+        total = w_seg * seg_loss
+
+        # 2. Weakly Supervised M2B Loss (Sphere Mask vs GT Bounding Box)
+        if 'sphere_mask' in model_output and cfg.ablation.use_weakmed:
+            sphere_mask = model_output['sphere_mask']
+            m2b_loss = self.m2b_loss_fn(sphere_mask, eyeball_bbox)
+            w_m2b = cfg.losses.weakmed_m2b.weight
+            total = total + w_m2b * m2b_loss
+
+        # 3. Semi-Supervised Containment Loss (Foreground Containment in Sphere)
+        if ('sphere_mask' in model_output
+                and cfg.ablation.use_sclera_containment
+                and current_epoch >= cfg.losses.sclera_containment.warmup_epochs):
+            containment_loss = self.containment_loss_fn(
+                model_output['sphere_mask'],
+                model_output['seg_logits'],
+            )
+            w_contain = cfg.losses.sclera_containment.weight
+            total = total + w_contain * containment_loss
+
+        losses['total_loss'] = total
+        return losses
+```
+
+```python
+class M2BLoss(nn.Module):
+    """Mask-to-Box (M2B) transformation loss from WeakMed (CVPR 2025)."""
+    def forward(self, sphere_mask: torch.Tensor, eyeball_bbox: torch.Tensor) -> torch.Tensor:
+        # Patch extraction within bbox
+        patch = sphere_mask[b, 0, y1:y2, x1:x2]
+        h, w = patch.shape
+
+        # M2B Projection (Eq. 1): Max-pool along rows and columns
+        P_w = patch.max(dim=0, keepdim=True).values  # [1, w]
+        P_h = patch.max(dim=1, keepdim=True).values  # [h, 1]
+
+        # M2B Back-projection (Eq. 2): Outer product via min
+        T_prime = torch.min(P_w.expand(h, w), P_h.expand(h, w))  # [h, w]
+        gt = torch.ones_like(T_prime)
+
+        # BCE + Soft Dice
+        bce = F.binary_cross_entropy(T_prime.clamp(1e-7, 1 - 1e-7), gt)
+        dice = 1.0 - (2.0 * (T_prime * gt).sum() + self.smooth) / (T_prime.sum() + gt.sum() + self.smooth)
+        return bce + dice
+```
+
+```python
+class ScleraContainmentLoss(nn.Module):
+    """Enforces that 2D foreground predictions lie strictly inside predicted sphere."""
+    def forward(self, sphere_mask: torch.Tensor, seg_logits: torch.Tensor) -> torch.Tensor:
+        seg_probs = F.softmax(seg_logits.detach(), dim=1)
+        foreground_prob = seg_probs[:, 1:, :, :].sum(dim=1, keepdim=True)
+        violation = F.relu(foreground_prob - sphere_mask)
+        return (violation ** 2).mean()
+```
 
 ---
 
