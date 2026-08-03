@@ -388,9 +388,31 @@ class LPWDomainDataset(Dataset):
         self, video_path: str, target_frame: int, count: int
     ) -> List[np.ndarray]:
         """Read `count` consecutive frames ending at target_frame."""
+        # Try PNG extracted first (100x faster than video seek decoding)
+        try:
+            rel = os.path.relpath(video_path, "/home/iulab1/PycharmProjects/transUnet/LPW")
+            folder_id, fname = os.path.split(rel)
+            file_id = os.path.splitext(fname)[0]
+            png_dir = os.path.join("/home/iulab1/PycharmProjects/transUnet/LPW_extracted", folder_id, file_id)
+
+            start = max(0, target_frame - count + 1)
+            frames = []
+            if os.path.isdir(png_dir):
+                for idx in range(start, target_frame + 1):
+                    png_path = os.path.join(png_dir, f"{idx:06d}.png")
+                    if os.path.exists(png_path):
+                        gray = cv2.imread(png_path, cv2.IMREAD_GRAYSCALE)
+                        if gray is not None:
+                            frames.append(gray)
+
+            if len(frames) == count:
+                return frames
+        except Exception:
+            pass
+
+        # Fallback to VideoCapture if PNGs not extracted yet
         cap = cv2.VideoCapture(video_path)
         start = max(0, target_frame - count + 1)
-
         frames = []
         cap.set(cv2.CAP_PROP_POS_FRAMES, start)
         for _ in range(count):
@@ -405,7 +427,6 @@ class LPWDomainDataset(Dataset):
                     frames.append(np.zeros((192, 192), dtype=np.uint8))
         cap.release()
 
-        # Pad if not enough frames
         while len(frames) < count:
             frames.insert(0, frames[0].copy())
 
@@ -417,13 +438,40 @@ class LPWDomainDataset(Dataset):
         """Read a single frame from pupil/eyelid label videos and create a mask."""
         target_size = self.preprocessor.target_size
 
-        # Read pupil label frame
+        # Try PNG extracted first
+        try:
+            pupil_prefix = os.path.splitext(os.path.basename(pupil_path))[0]
+            eyelid_prefix = os.path.splitext(os.path.basename(eyelid_path))[0]
+            pupil_png = os.path.join("/home/iulab1/PycharmProjects/nnUNet/Pupils_in_the_wild_extracted", pupil_prefix, f"{frame_idx:06d}.png")
+            eyelid_png = os.path.join("/home/iulab1/PycharmProjects/nnUNet/Pupils_in_the_wild_extracted", eyelid_prefix, f"{frame_idx:06d}.png")
+
+            if os.path.exists(pupil_png) and os.path.exists(eyelid_png):
+                pupil_gray = cv2.imread(pupil_png, cv2.IMREAD_GRAYSCALE)
+                eyelid_gray = cv2.imread(eyelid_png, cv2.IMREAD_GRAYSCALE)
+
+                mask = np.zeros(target_size, dtype=np.int64)
+
+                if pupil_gray is not None:
+                    if pupil_gray.shape[:2] != target_size:
+                        pupil_gray = cv2.resize(pupil_gray, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
+                    mask[pupil_gray > 128] = 3
+
+                if eyelid_gray is not None:
+                    if eyelid_gray.shape[:2] != target_size:
+                        eyelid_gray = cv2.resize(eyelid_gray, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
+                    eyelid_region = (eyelid_gray > 128) & (mask != 3)
+                    mask[eyelid_region] = 2
+
+                return mask
+        except Exception:
+            pass
+
+        # Fallback to VideoCapture
         cap_pupil = cv2.VideoCapture(pupil_path)
         cap_pupil.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ret_p, frame_p = cap_pupil.read()
         cap_pupil.release()
 
-        # Read eyelid label frame
         cap_eyelid = cv2.VideoCapture(eyelid_path)
         cap_eyelid.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ret_e, frame_e = cap_eyelid.read()
@@ -435,13 +483,12 @@ class LPWDomainDataset(Dataset):
             pupil_gray = cv2.cvtColor(frame_p, cv2.COLOR_BGR2GRAY)
             pupil_gray = cv2.resize(pupil_gray, (target_size[1], target_size[0]),
                                      interpolation=cv2.INTER_NEAREST)
-            mask[pupil_gray > 128] = 3  # Pupil class
+            mask[pupil_gray > 128] = 3
 
         if ret_e and frame_e is not None:
             eyelid_gray = cv2.cvtColor(frame_e, cv2.COLOR_BGR2GRAY)
             eyelid_gray = cv2.resize(eyelid_gray, (target_size[1], target_size[0]),
                                       interpolation=cv2.INTER_NEAREST)
-            # Eyelid region where pupil is not -> approximate as iris (class 2)
             eyelid_region = (eyelid_gray > 128) & (mask != 3)
             mask[eyelid_region] = 2
 
