@@ -163,19 +163,23 @@ class VivimBackbone(nn.Module):
 
         # --- SAGD Processing ---
         serialized_tokens = None
+        inv_cds_order = None
         if self.use_sadg and self.sas is not None:
             # SAS: Structure-Aware Serialization
-            fwd_cds, rev_cds, fwd_gcs, rev_gcs = self.sas(b_last)
+            fwd_cds, rev_cds, fwd_gcs, rev_gcs, inv_cds_order = self.sas(b_last)
 
-            # Average all 4 serialization views for the primary token stream
-            serialized_tokens = (fwd_cds + rev_cds + fwd_gcs + rev_gcs) / 4.0  # [B, N, C]
+            # Unflip reversed sequences before combining spatially
+            rev_cds_unflip = torch.flip(rev_cds, dims=[1])
+            rev_gcs_unflip = torch.flip(rev_gcs, dims=[1])
+            serialized_tokens = (fwd_cds + rev_cds_unflip + fwd_gcs + rev_gcs_unflip) / 4.0  # [B, N, C]
 
             # SGA: Spectral Graph Alignment (train=EMA update, test=alignment)
             if self.sga is not None:
                 serialized_tokens = self.sga(serialized_tokens, labels)
 
-            # Reshape back to spatial feature map for decoder
-            b_last = serialized_tokens.permute(0, 2, 1).reshape(B, C_b, H_b, W_b)
+            # Unscramble tokens back to original 2D spatial raster order BEFORE passing to UNet decoder
+            unscrambled = self.sas.unscramble(serialized_tokens, inv_cds_order)
+            b_last = unscrambled.permute(0, 2, 1).reshape(B, C_b, H_b, W_b)
 
         # Extract last frame skip connections
         e3_last = e3.view(B, T, -1, H // 4, W // 4)[:, -1]
@@ -191,6 +195,7 @@ class VivimBackbone(nn.Module):
                 'seg': seg_logits,
                 'bottleneck_features': b_last,
                 'serialized_tokens': serialized_tokens,
+                'inv_cds_order': inv_cds_order,
             }
 
         return seg_logits
@@ -205,7 +210,7 @@ class VivimBackbone(nn.Module):
             domain_id: domain index
 
         Returns:
-            dict with 'seg_logits', 'bottleneck', 'serialized_tokens', 'skips'
+            dict with 'bottleneck', 'serialized_tokens', 'inv_cds_order', 'skips', 'spatial_shape'
         """
         B, T, C, H, W = x.shape
         x_flat = x.view(B * T, C, H, W)
@@ -222,9 +227,12 @@ class VivimBackbone(nn.Module):
 
         # SAS serialization
         serialized_tokens = None
+        inv_cds_order = None
         if self.use_sadg and self.sas is not None:
-            fwd_cds, rev_cds, fwd_gcs, rev_gcs = self.sas(b_last)
-            serialized_tokens = (fwd_cds + rev_cds + fwd_gcs + rev_gcs) / 4.0
+            fwd_cds, rev_cds, fwd_gcs, rev_gcs, inv_cds_order = self.sas(b_last)
+            rev_cds_unflip = torch.flip(rev_cds, dims=[1])
+            rev_gcs_unflip = torch.flip(rev_gcs, dims=[1])
+            serialized_tokens = (fwd_cds + rev_cds_unflip + fwd_gcs + rev_gcs_unflip) / 4.0
 
         # Skips for later decoding
         e3_last = e3.view(B, T, -1, H // 4, W // 4)[:, -1]
@@ -234,11 +242,14 @@ class VivimBackbone(nn.Module):
         return {
             'bottleneck': b_last,
             'serialized_tokens': serialized_tokens,
+            'inv_cds_order': inv_cds_order,
             'skips': (e3_last, e2_last, e1_last),
             'spatial_shape': (H_b, W_b),
         }
 
-    def decode_from_tokens(self, tokens: torch.Tensor, skips, spatial_shape):
+    def decode_from_tokens(
+        self, tokens: torch.Tensor, skips, spatial_shape, inv_cds_order=None
+    ):
         """
         Decode from HDM-processed tokens back to segmentation logits.
 
@@ -246,12 +257,18 @@ class VivimBackbone(nn.Module):
             tokens: [B, N, C] processed tokens
             skips: (e3_last, e2_last, e1_last)
             spatial_shape: (H_b, W_b) bottleneck spatial dims
+            inv_cds_order: [B, N] optional inverse permutation for 2D spatial unscrambling
         """
         B = tokens.shape[0]
         C_b = tokens.shape[2]
         H_b, W_b = spatial_shape
 
-        b_last = tokens.permute(0, 2, 1).reshape(B, C_b, H_b, W_b)
+        if inv_cds_order is not None and self.sas is not None:
+            unscrambled = self.sas.unscramble(tokens, inv_cds_order[:B])
+            b_last = unscrambled.permute(0, 2, 1).reshape(B, C_b, H_b, W_b)
+        else:
+            b_last = tokens.permute(0, 2, 1).reshape(B, C_b, H_b, W_b)
+
         e3_last, e2_last, e1_last = skips
 
         # Slice skip connections to match batch size B

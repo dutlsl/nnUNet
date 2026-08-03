@@ -235,9 +235,17 @@ class StructureAwareSerializer(nn.Module):
         self._cached_cds_order = None
         self._cached_gcs_order = None
 
+    def unscramble(self, tokens: torch.Tensor, inv_cds_order: torch.Tensor) -> torch.Tensor:
+        """
+        Unscrambles centroid-ordered tokens back to original 2D spatial raster order (H x W).
+        """
+        B, N, C = tokens.shape
+        inv_idx = inv_cds_order.unsqueeze(-1).expand(-1, -1, C)
+        return torch.gather(tokens, 1, inv_idx)
+
     def forward(
         self, features: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Serialize feature map tokens using both CDS and GCS strategies.
 
@@ -249,6 +257,7 @@ class StructureAwareSerializer(nn.Module):
             rev_cds: [B, N, C] reverse CDS-serialized tokens
             fwd_gcs: [B, N, C] forward GCS-serialized tokens
             rev_gcs: [B, N, C] reverse GCS-serialized tokens
+            inv_cds_order: [B, N] inverse permutation for 2D spatial unscrambling
         """
         B, C, H, W = features.shape
         N = H * W
@@ -259,9 +268,9 @@ class StructureAwareSerializer(nn.Module):
         # Compute serialization orders
         cds_order = self.cds(features)  # [B, N]
         gcs_order = self.gcs(features)  # [B, N]
+        inv_cds_order = cds_order.argsort(dim=-1)  # [B, N] for 2D unscrambling
 
         # Gather tokens in serialized order
-        # Expand order for gathering: [B, N, 1] -> [B, N, C]
         cds_idx = cds_order.unsqueeze(-1).expand(-1, -1, C)
         gcs_idx = gcs_order.unsqueeze(-1).expand(-1, -1, C)
 
@@ -270,4 +279,4 @@ class StructureAwareSerializer(nn.Module):
         fwd_gcs = torch.gather(tokens, 1, gcs_idx)
         rev_gcs = torch.flip(fwd_gcs, dims=[1])
 
-        return fwd_cds, rev_cds, fwd_gcs, rev_gcs
+        return fwd_cds, rev_cds, fwd_gcs, rev_gcs, inv_cds_order

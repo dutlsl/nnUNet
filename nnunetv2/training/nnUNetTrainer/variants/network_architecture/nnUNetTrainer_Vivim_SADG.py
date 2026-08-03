@@ -145,7 +145,10 @@ class VivimSAGDWrapper(nn.Module):
             # Decode primary domain from HDM-fused tokens
             primary_out = domain_outputs[0]
             primary_seg = self.backbone.decode_from_tokens(
-                hdm_output, primary_out['skips'], primary_out['spatial_shape']
+                hdm_output,
+                primary_out['skips'],
+                primary_out['spatial_shape'],
+                inv_cds_order=primary_out.get('inv_cds_order', None),
             )
         elif 0 in domain_outputs:
             # Single domain or no HDM
@@ -156,7 +159,10 @@ class VivimSAGDWrapper(nn.Module):
                 if self.sga is not None:
                     tokens = self.sga(tokens, domain_batches[0].get('label', None))
                 primary_seg = self.backbone.decode_from_tokens(
-                    tokens, primary_out['skips'], primary_out['spatial_shape']
+                    tokens,
+                    primary_out['skips'],
+                    primary_out['spatial_shape'],
+                    inv_cds_order=primary_out.get('inv_cds_order', None),
                 )
             else:
                 primary_seg = self.backbone.decode_from_tokens(
@@ -184,7 +190,10 @@ class VivimSAGDWrapper(nn.Module):
                     if idx is not None and idx < len(serialized_list):
                         aux_tokens = self.hdm.ism_blocks[d_id](serialized_list[idx])
                         aux_seg = self.backbone.decode_from_tokens(
-                            aux_tokens, aux_out['skips'], aux_out['spatial_shape']
+                            aux_tokens,
+                            aux_out['skips'],
+                            aux_out['spatial_shape'],
+                            inv_cds_order=aux_out.get('inv_cds_order', None),
                         )
                         aux_seg_list.append(aux_seg)
 
