@@ -17,6 +17,11 @@ from PIL import Image
 from typing import Dict, List, Tuple, Optional
 
 
+import pickle
+
+CACHE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.cache_sagd'))
+
+
 class RITnetPreprocessor:
     """
     RITnet-compatible preprocessing pipeline.
@@ -90,37 +95,47 @@ class OpenEDSDomainDataset(Dataset):
         self.preprocessor = preprocessor or RITnetPreprocessor()
         self.domain_id = 0
 
-        all_pngs = sorted(glob.glob(os.path.join(image_dir, '**', '*.png'), recursive=True))
-        if not all_pngs:
-            all_pngs = sorted(glob.glob(os.path.join(image_dir, '*.png')))
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        split_name = os.path.basename(image_dir)
+        cache_path = os.path.join(CACHE_DIR, f"openeds_{split_name}_T{temporal_window}.pkl")
 
-        self.samples: List[Tuple[List[str], str]] = []
+        if os.path.exists(cache_path):
+            with open(cache_path, 'rb') as f:
+                self.samples = pickle.load(f)
+        else:
+            all_pngs = sorted(glob.glob(os.path.join(image_dir, '**', '*.png'), recursive=True))
+            if not all_pngs:
+                all_pngs = sorted(glob.glob(os.path.join(image_dir, '*.png')))
 
-        dir_to_files: Dict[str, List[str]] = {}
-        for p in all_pngs:
-            parent = os.path.dirname(p)
-            if parent not in dir_to_files:
-                dir_to_files[parent] = []
-            dir_to_files[parent].append(p)
+            self.samples = []
+            dir_to_files: Dict[str, List[str]] = {}
+            for p in all_pngs:
+                parent = os.path.dirname(p)
+                if parent not in dir_to_files:
+                    dir_to_files[parent] = []
+                dir_to_files[parent].append(p)
 
-        for parent_dir, file_list in dir_to_files.items():
-            sorted_files = sorted(file_list)
-            if len(sorted_files) < temporal_window:
-                continue
-            for end_idx in range(temporal_window - 1, len(sorted_files)):
-                start_idx = end_idx - temporal_window + 1
-                window_files = sorted_files[start_idx:end_idx + 1]
-                target_file = window_files[-1]
-                fname = os.path.splitext(os.path.basename(target_file))[0]
+            for parent_dir, file_list in dir_to_files.items():
+                sorted_files = sorted(file_list)
+                if len(sorted_files) < temporal_window:
+                    continue
+                for end_idx in range(temporal_window - 1, len(sorted_files)):
+                    start_idx = end_idx - temporal_window + 1
+                    window_files = sorted_files[start_idx:end_idx + 1]
+                    target_file = window_files[-1]
+                    fname = os.path.splitext(os.path.basename(target_file))[0]
 
-                rel_dir = os.path.relpath(parent_dir, image_dir)
-                if rel_dir == '.':
-                    label_path = os.path.join(label_dir, f"{fname}.npy")
-                else:
-                    label_path = os.path.join(label_dir, rel_dir, f"{fname}.npy")
+                    rel_dir = os.path.relpath(parent_dir, image_dir)
+                    if rel_dir == '.':
+                        label_path = os.path.join(label_dir, f"{fname}.npy")
+                    else:
+                        label_path = os.path.join(label_dir, rel_dir, f"{fname}.npy")
 
-                if os.path.exists(label_path):
-                    self.samples.append((window_files, label_path))
+                    if os.path.exists(label_path):
+                        self.samples.append((window_files, label_path))
+
+            with open(cache_path, 'wb') as f:
+                pickle.dump(self.samples, f)
 
         print(f"[OpenEDS Domain] {len(self.samples)} samples (T={temporal_window})")
 
@@ -310,61 +325,59 @@ class LPWDomainDataset(Dataset):
         self.domain_id = 2
         self.skip_missing_labels = skip_missing_labels
 
-        self.samples: List[Tuple[str, str, str, int]] = []  # (video_path, pupil_label, eyelid_label, frame_idx)
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        cache_path = os.path.join(CACHE_DIR, f"lpw_T{temporal_window}.pkl")
 
-        # Map LPW video folders to label videos
-        # LPW structure: /LPW/{folder_id}/{file_id}.avi
-        # Label structure: /Pupils.../folder-{id}_file-{id}_pupil.mp4
+        if os.path.exists(cache_path):
+            with open(cache_path, 'rb') as f:
+                self.samples = pickle.load(f)
+        else:
+            self.samples = []
+            label_files = {}
+            if os.path.isdir(segment_label_root):
+                for f in os.listdir(segment_label_root):
+                    if f.endswith('_pupil.mp4'):
+                        key = f.replace('_pupil.mp4', '')
+                        pupil_path = os.path.join(segment_label_root, f)
+                        eyelid_path = os.path.join(segment_label_root, f.replace('_pupil.mp4', '_eyelid.mp4'))
+                        if os.path.exists(eyelid_path):
+                            label_files[key] = (pupil_path, eyelid_path)
 
-        # Scan available label files
-        label_files = {}
-        if os.path.isdir(segment_label_root):
-            for f in os.listdir(segment_label_root):
-                if f.endswith('_pupil.mp4'):
-                    key = f.replace('_pupil.mp4', '')
-                    pupil_path = os.path.join(segment_label_root, f)
-                    eyelid_path = os.path.join(segment_label_root, f.replace('_pupil.mp4', '_eyelid.mp4'))
-                    if os.path.exists(eyelid_path):
-                        label_files[key] = (pupil_path, eyelid_path)
-
-        # Scan LPW video files
-        for folder_name in sorted(os.listdir(video_root)):
-            folder_path = os.path.join(video_root, folder_name)
-            if not os.path.isdir(folder_path):
-                continue
-
-            for video_file in sorted(os.listdir(folder_path)):
-                if not video_file.endswith('.avi'):
+            for folder_name in sorted(os.listdir(video_root)):
+                folder_path = os.path.join(video_root, folder_name)
+                if not os.path.isdir(folder_path):
                     continue
 
-                file_id = video_file.replace('.avi', '')
-                label_key = f"folder-{folder_name}_file-{file_id}"
-
-                if label_key not in label_files:
-                    if skip_missing_labels:
-                        continue
-                    else:
-                        print(f"[LPW] Missing labels for {label_key}")
+                for video_file in sorted(os.listdir(folder_path)):
+                    if not video_file.endswith('.avi'):
                         continue
 
-                video_path = os.path.join(folder_path, video_file)
-                pupil_label_path, eyelid_label_path = label_files[label_key]
+                    file_id = video_file.replace('.avi', '')
+                    label_key = f"folder-{folder_name}_file-{file_id}"
 
-                # Get frame count from video
-                cap = cv2.VideoCapture(video_path)
-                if not cap.isOpened():
-                    continue
-                n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                cap.release()
+                    if label_key not in label_files:
+                        if skip_missing_labels:
+                            continue
 
-                if n_frames < temporal_window:
-                    continue
+                    video_path = os.path.join(folder_path, video_file)
+                    pupil_label_path, eyelid_label_path = label_files[label_key]
 
-                # Sample frames (every 5th frame to avoid redundancy)
-                for frame_idx in range(temporal_window - 1, n_frames, 5):
-                    self.samples.append(
-                        (video_path, pupil_label_path, eyelid_label_path, frame_idx)
-                    )
+                    cap = cv2.VideoCapture(video_path)
+                    if not cap.isOpened():
+                        continue
+                    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    cap.release()
+
+                    if n_frames < temporal_window:
+                        continue
+
+                    for frame_idx in range(temporal_window - 1, n_frames, 5):
+                        self.samples.append(
+                            (video_path, pupil_label_path, eyelid_label_path, frame_idx)
+                        )
+
+            with open(cache_path, 'wb') as f:
+                pickle.dump(self.samples, f)
 
         print(f"[LPW Domain] {len(self.samples)} samples (T={temporal_window})")
 
