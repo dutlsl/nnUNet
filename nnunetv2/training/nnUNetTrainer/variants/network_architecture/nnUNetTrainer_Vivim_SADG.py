@@ -101,7 +101,9 @@ class VivimSAGDWrapper(nn.Module):
         self.cfg = cfg
 
     def forward(self, x, labels=None):
-        """Standard forward: single domain inference."""
+        """Standard forward (or multi-domain training if x is dict)."""
+        if isinstance(x, dict):
+            return self.forward_multi_domain(x)
         if x.ndim == 4:
             x = x.unsqueeze(1)  # [B, C, H, W] -> [B, 1, C, H, W]
         return self.backbone(x, labels=labels)
@@ -405,11 +407,8 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             if self._iter_count % self.num_iterations_per_epoch == 0:
                 self.network.sas.clear_cache()
 
-        # Multi-domain forward
-        if hasattr(self.network, 'module'):
-            output = self.network.module.forward_multi_domain(batch)
-        else:
-            output = self.network.forward_multi_domain(batch)
+        # Multi-domain forward via self.network(batch) (ensures DDP registers NCCL autograd hooks)
+        output = self.network(batch)
 
         # Get primary domain labels (slice to match output batch size)
         primary_labels = batch[0]['label'] if 0 in batch else None
