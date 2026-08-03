@@ -541,6 +541,42 @@ def collate_multi_domain(batch: List[Dict]) -> Dict[str, torch.Tensor]:
     return result
 
 
+class MultiDomainDataset(Dataset):
+    """Wrapper dataset taking (domain_id, local_index) tuples."""
+    def __init__(self, datasets: List[Dataset]):
+        self.datasets = datasets
+
+    def __len__(self):
+        return sum(len(d) for d in self.datasets)
+
+    def __getitem__(self, item):
+        domain_id, local_idx = item
+        return self.datasets[domain_id][local_idx]
+
+
+class MultiDomainBatchSampler:
+    """
+    Yields batches where each domain has exactly `samples_per_domain` items per step.
+    Guarantees B_min is constant (e.g., 2) across all domains, eliminating wasted sample loading.
+    """
+    def __init__(self, datasets: List[Dataset], samples_per_domain: int = 2, num_iterations: int = 250):
+        self.datasets = datasets
+        self.samples_per_domain = samples_per_domain
+        self.num_iterations = num_iterations
+
+    def __iter__(self):
+        for _ in range(self.num_iterations):
+            batch_indices = []
+            for domain_id, ds in enumerate(self.datasets):
+                indices = np.random.choice(len(ds), size=self.samples_per_domain, replace=True)
+                for idx in indices:
+                    batch_indices.append((domain_id, idx))
+            yield batch_indices
+
+    def __len__(self):
+        return self.num_iterations
+
+
 def get_multi_domain_dataloaders(cfg) -> Dict[str, DataLoader]:
     """
     Build multi-domain DataLoaders from SAGD config.
@@ -593,17 +629,22 @@ def get_multi_domain_dataloaders(cfg) -> Dict[str, DataLoader]:
         skip_missing_labels=lpw_cfg.skip_missing_labels,
     )
 
-    # Combine all domains for training
-    train_ds = ConcatDataset([openeds_train, swirski_ds, lpw_ds])
+    # Domain-balanced batch sampler: 2 samples per domain = 6 samples per step, B_min = 2
+    domain_list = [openeds_train, swirski_ds, lpw_ds]
+    multi_ds = MultiDomainDataset(domain_list)
+    samples_per_domain = max(2, cfg.training.batch_size // 3)
+    batch_sampler = MultiDomainBatchSampler(
+        domain_list,
+        samples_per_domain=samples_per_domain,
+        num_iterations=250,
+    )
 
     loaders = {
         'train': DataLoader(
-            train_ds,
-            batch_size=cfg.training.batch_size,
-            shuffle=True,
+            multi_ds,
+            batch_sampler=batch_sampler,
             num_workers=cfg.training.num_workers,
             pin_memory=True,
-            drop_last=True,
             collate_fn=collate_multi_domain,
         ),
         'validation': DataLoader(
