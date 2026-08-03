@@ -10,6 +10,7 @@ Dual GPU training via DistributedDataParallel.
 import os
 import sys
 import torch
+import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
 from datetime import datetime
