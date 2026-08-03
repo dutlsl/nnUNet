@@ -446,7 +446,7 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
             self.optimizer.step()
 
-        return {'loss': l.detach().cpu().numpy()}
+        return {'loss': l.detach().cpu().numpy().item()}
 
     def validation_step(self, batch: dict) -> dict:
         """Standard single-domain validation on OpenEDS."""
@@ -494,7 +494,7 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             )
 
         return {
-            'loss': l.detach().cpu().numpy(),
+            'loss': l.detach().cpu().numpy().item(),
             'tp_hard': tp_hard,
             'fp_hard': fp_hard,
             'fn_hard': fn_hard,
