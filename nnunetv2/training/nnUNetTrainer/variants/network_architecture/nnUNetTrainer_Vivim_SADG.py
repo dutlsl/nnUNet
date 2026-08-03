@@ -27,6 +27,7 @@ try:
 except ImportError:
     HAS_WANDB = False
 
+from torch.nn.parallel import DistributedDataParallel as DDP
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p
 from nnunetv2.utilities.helpers import empty_cache
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
@@ -294,7 +295,7 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             self.optimizer, self.lr_scheduler = self.configure_optimizers()
             if self.is_ddp:
                 self.network = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.network)
-                self.network = DDP(self.network, device_ids=[self.local_rank])
+                self.network = DDP(self.network, device_ids=[self.local_rank], find_unused_parameters=True)
             self.loss = self._build_loss()
             self.dataset_class = None
             self.was_initialized = True
@@ -405,7 +406,7 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
                 self.network.sas.clear_cache()
 
         # Multi-domain forward
-        if isinstance(self.network, nn.DataParallel):
+        if hasattr(self.network, 'module'):
             output = self.network.module.forward_multi_domain(batch)
         else:
             output = self.network.forward_multi_domain(batch)
@@ -450,7 +451,7 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         target_squeezed = target.squeeze(1).long()
 
         with torch.no_grad():
-            if isinstance(self.network, nn.DataParallel):
+            if hasattr(self.network, 'module'):
                 output = self.network.module(data, labels=target_squeezed)
             else:
                 output = self.network(data, labels=target_squeezed)
@@ -500,13 +501,6 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         self.set_deep_supervision_enabled(self.enable_deep_supervision)
         self.print_plans()
         empty_cache(self.device)
-
-        # Use DataParallel for dual GPU
-        gpu_ids = list(self.sadg_cfg.training.gpu_ids)
-        if len(gpu_ids) > 1 and torch.cuda.device_count() >= len(gpu_ids):
-            print(f"[SAGD] Enabling DataParallel on GPUs: {gpu_ids}", flush=True)
-            if not isinstance(self.network, nn.DataParallel):
-                self.network = nn.DataParallel(self.network, device_ids=gpu_ids)
 
         if self.local_rank == 0 and HAS_WANDB:
             run_name = f"SAGD_Vivim_fold{self.fold}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
