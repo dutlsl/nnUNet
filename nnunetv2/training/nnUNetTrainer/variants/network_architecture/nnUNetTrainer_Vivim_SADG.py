@@ -15,7 +15,9 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 
 # Ensure project root is in sys.path
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', '..'))
+# File is at: nnunetv2/training/nnUNetTrainer/variants/network_architecture/
+# 5 levels up -> nnUNet project root
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -25,6 +27,8 @@ try:
 except ImportError:
     HAS_WANDB = False
 
+from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p
+from nnunetv2.utilities.helpers import empty_cache
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 from nnunetv2.training.loss.dice import get_tp_fp_fn_tn
@@ -281,6 +285,33 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         # Loss
         self.sadg_loss = None  # Initialized in _build_loss
 
+    def _do_i_compile(self):
+        return False
+
+    def initialize(self):
+        if not self.was_initialized:
+            self.initialize_network()
+            self.optimizer, self.lr_scheduler = self.configure_optimizers()
+            if self.is_ddp:
+                self.network = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.network)
+                self.network = DDP(self.network, device_ids=[self.local_rank])
+            self.loss = self._build_loss()
+            self.dataset_class = None
+            self.was_initialized = True
+
+            logger_config_hparas = {
+                "initial_lr": self.initial_lr,
+                "weight_decay": self.weight_decay,
+                "oversample_foreground_percent": self.oversample_foreground_percent,
+                "probabilistic_oversampling": self.probabilistic_oversampling,
+                "num_iterations_per_epoch": self.num_iterations_per_epoch,
+                "num_val_iterations_per_epoch": self.num_val_iterations_per_epoch,
+                "num_epochs": self.num_epochs,
+                "enable_deep_supervision": self.enable_deep_supervision,
+                "batch_size": self.configuration_manager.batch_size
+            }
+            self.logger.update_config({"hparas": logger_config_hparas})
+
     def configure_optimizers(self):
         """AdamW with PolyLR scheduler."""
         optimizer = torch.optim.AdamW(
@@ -293,7 +324,13 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
 
     def initialize_network(self):
         """Build Vivim + SAGD network."""
-        super().initialize_network()
+        self.network = self.build_network_architecture(
+            self.plans_manager,
+            self.configuration_manager,
+            self.num_input_channels,
+            self.label_manager.num_segmentation_heads,
+            self.enable_deep_supervision
+        ).to(self.device)
 
         # Try to load pretrained weights from baseline Vivim
         ckpt_paths = [
@@ -453,7 +490,14 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         }
 
     def on_train_start(self):
-        super().on_train_start()
+        if not self.was_initialized:
+            self.initialize()
+
+        self.dataloader_train, self.dataloader_val = self.get_dataloaders()
+        maybe_mkdir_p(self.output_folder)
+        self.set_deep_supervision_enabled(self.enable_deep_supervision)
+        self.print_plans()
+        empty_cache(self.device)
 
         # Use DataParallel for dual GPU
         gpu_ids = list(self.sadg_cfg.training.gpu_ids)
@@ -466,7 +510,7 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             run_name = f"SAGD_Vivim_fold{self.fold}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             print(f"[SAGD] WandB run: {run_name}", flush=True)
             wandb.init(
-                project="eyeball-3d",
+                project="sagd-eyeball",
                 name=run_name,
                 config={
                     "trainer": self.__class__.__name__,
