@@ -254,4 +254,9 @@ class VivimBackbone(nn.Module):
         b_last = tokens.permute(0, 2, 1).reshape(B, C_b, H_b, W_b)
         e3_last, e2_last, e1_last = skips
 
+        # Slice skip connections to match batch size B
+        e3_last = e3_last[:B]
+        e2_last = e2_last[:B]
+        e1_last = e1_last[:B]
+
         return self._decode(b_last, e3_last, e2_last, e1_last)
