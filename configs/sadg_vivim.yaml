@@ -84,7 +84,6 @@ data:
     skip_missing_labels: true
 
 training:
-  batch_size: 36
   num_workers: 0
   gpu_ids: [0, 1]
 
