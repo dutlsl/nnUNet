@@ -477,7 +477,12 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             )
             predicted_onehot.scatter_(1, output_seg, 1)
 
-            tp, fp, fn, _ = get_tp_fp_fn_tn(predicted_onehot, target, axes=axes, mask=None)
+            target_onehot = torch.zeros(
+                seg_logits.shape, device=seg_logits.device, dtype=torch.float16
+            )
+            target_onehot.scatter_(1, target, 1)
+
+            tp, fp, fn, _ = get_tp_fp_fn_tn(predicted_onehot, target_onehot, axes=axes, mask=None)
 
             tp_hard = tp.detach().cpu().numpy()[1:]
             fp_hard = fp.detach().cpu().numpy()[1:]
