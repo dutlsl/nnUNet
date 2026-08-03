@@ -288,8 +288,9 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         self.enable_deep_supervision = False
         self.num_iterations_per_epoch = 250
         self.num_val_iterations_per_epoch = 50
-        self.initial_lr = 1e-3
-        self.weight_decay = 1e-4
+        # Load SAGD config
+        config_path = os.path.join(PROJECT_ROOT, 'configs', 'sadg_vivim.yaml')
+        self.sadg_cfg = load_config(config_path)
 
         # --- Dynamic VRAM Scaling & Multi-Domain Plan Calculation ---
         # Dynamically calculate optimal batch_size for model patch size [192, 192]
