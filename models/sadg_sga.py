@@ -13,7 +13,7 @@ During inference: performs full spectral alignment for domain adaptation.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
+from typing import Optional, Tuple
 
 
 class SourcePrototypeBank(nn.Module):
@@ -123,7 +123,7 @@ class SpectralGraphAlignment(nn.Module):
 
     def __init__(
         self,
-        num_classes: int = 4,
+        num_classes = 4,
         feature_dim: int = 256,
         num_prototypes_per_class: int = 4,
         temperature: float = 0.1,
@@ -131,6 +131,18 @@ class SpectralGraphAlignment(nn.Module):
         momentum: float = 0.999,
     ):
         super().__init__()
+        if hasattr(num_classes, 'model'):
+            cfg = num_classes
+            num_classes = cfg.model.num_classes
+            feature_dim = cfg.model.base_channels * 8
+            sga_cfg = cfg.model.sga
+            num_prototypes_per_class = sga_cfg.num_prototypes_per_class
+            temperature = sga_cfg.alignment_temperature
+            spectral_k = sga_cfg.spectral_k
+            momentum = sga_cfg.prototype_momentum
+        else:
+            num_classes = int(num_classes)
+
         self.num_classes = num_classes
         self.feature_dim = feature_dim
         self.temperature = temperature
