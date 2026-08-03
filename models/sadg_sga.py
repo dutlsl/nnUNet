@@ -55,6 +55,7 @@ class SourcePrototypeBank(nn.Module):
             labels: [B, H, W] segmentation labels (will be downsampled to match N)
         """
         B, N, C = features.shape
+        labels = labels[:B]
         H_feat = W_feat = int(N ** 0.5)
 
         # Downsample labels to feature resolution

@@ -410,8 +410,10 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         else:
             output = self.network.forward_multi_domain(batch)
 
-        # Get primary domain labels
+        # Get primary domain labels (slice to match output batch size)
         primary_labels = batch[0]['label'] if 0 in batch else None
+        if primary_labels is not None:
+            primary_labels = primary_labels[:output['seg_logits'].shape[0]]
 
         if primary_labels is None:
             # No primary domain in this batch, skip
