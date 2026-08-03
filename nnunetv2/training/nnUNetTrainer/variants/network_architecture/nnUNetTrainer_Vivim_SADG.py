@@ -290,16 +290,23 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         self.initial_lr = 1e-3
         self.weight_decay = 1e-4
 
-        # Load SAGD config
-        config_path = os.path.join(PROJECT_ROOT, 'configs', 'sadg_vivim.yaml')
-        self.sadg_cfg = load_config(config_path)
+        # --- Dynamic VRAM Scaling & Multi-Domain Plan Calculation ---
+        # Dynamically calculate optimal batch_size for model patch size [192, 192]
+        # using nnUNet's VRAM scaling law: (plan_patch_voxels / model_patch_voxels) * plan_batch_size
+        plan_patch_voxels = float(np.prod(self.configuration_manager.patch_size))  # e.g. 448 * 640 = 286,720
+        model_patch_size = list(self.sadg_cfg.data.input_resolution)  # [192, 192]
+        model_patch_voxels = float(np.prod(model_patch_size))  # 192 * 192 = 36,864
 
-        # --- Solve nnUNet Planner Single-Domain Mismatch Bug ---
-        # Override nnUNet single-domain UNet plan parameters with custom multi-domain model plan:
-        # Patch size: [192, 192] (matching preprocessed eyeball crop)
-        # Batch size: 24 (8 samples per domain across 3 domains: OpenEDS, Swirski, LPW)
-        self.configuration_manager.configuration['patch_size'] = [192, 192]
-        self.configuration_manager.configuration['batch_size'] = 24
+        vram_scaling_factor = plan_patch_voxels / max(model_patch_voxels, 1.0)  # ~7.778
+        raw_dynamic_bs = int(round(self.configuration_manager.batch_size * vram_scaling_factor))  # 11 * 7.778 = 85
+
+        # Align to multi-domain 3-domain sampling (nearest multiple of 3 domains, capped at 24 for DDP stability)
+        num_domains = getattr(self.sadg_cfg.model.hdm, 'num_domains', 3)
+        dynamic_batch_size = (min(raw_dynamic_bs, 24) // num_domains) * num_domains  # 24 (8/domain)
+
+        # Update configuration_manager dynamically
+        self.configuration_manager.configuration['patch_size'] = model_patch_size
+        self.configuration_manager.configuration['batch_size'] = dynamic_batch_size
 
         # Loss
         self.sadg_loss = None  # Initialized in _build_loss
