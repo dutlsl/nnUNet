@@ -1,0 +1,115 @@
+# ==============================================================================
+# SAGD (Structure-Aware Domain Generalization) Configuration
+# Applied on top of Vivim+Mamba3 backbone for eyeball segmentation
+# ==============================================================================
+
+experiment:
+  name: sagd_vivim
+  seed: 42
+
+ablation:
+  use_mamba: true
+  use_sadg: true
+  use_sas: true        # Structure-Aware Serialization
+  use_hdm: true        # Hierarchical Domain Modeling
+  use_sga: true        # Spectral Graph Alignment (test-time only)
+  use_weakmed: false
+  use_eyeball_head: false
+
+model:
+  backbone: vivim
+  base_channels: 32
+  num_classes: 4
+  mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+
+  # SAS-2D: Structure-Aware Serialization
+  sas:
+    num_tokens: 576           # 24x24 bottleneck spatial tokens
+    feature_h: 24
+    feature_w: 24
+    cds_num_neighbors: 8      # BFS/KNN neighbor count for CDS
+    gcs_diffusion_time: 2.0   # Heat diffusion time parameter t
+    gcs_num_eigenvectors: 32  # Number of Laplacian eigenvectors for GCS
+    cache_serialization: true # Cache serialization order per epoch
+
+  # HDM-2D: Hierarchical Domain Modeling
+  hdm:
+    num_domains: 3              # OpenEDS, Swirski, LPW
+    mamba_d_state: 16
+    mamba_d_conv: 4
+    mamba_expand: 2
+    interleave_chunk_size: 64   # Tokens per chunk in IRF interleaving
+
+  # SGA-2D: Spectral Graph Alignment (test-time only)
+  sga:
+    prototype_momentum: 0.999   # EMA momentum for prototype bank update
+    num_prototypes_per_class: 4 # Number of prototypes per semantic class
+    alignment_temperature: 0.1  # Temperature for spectral alignment softmax
+    spectral_k: 16              # Number of eigenvectors for graph alignment
+
+data:
+  dataset: multi_domain
+  temporal_window: 3
+  input_resolution: [192, 192]
+
+  # RITnet preprocessing (spec.md §4)
+  preprocess:
+    gamma: 0.8
+    clahe_clip_limit: 1.5
+    clahe_tile_grid: [8, 8]
+    normalize_mean: 0.5
+    normalize_std: 0.5
+
+  # Domain 1: OpenEDS 2019 (primary, 4-class labels)
+  openeds:
+    sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
+    pseudo_label_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_400
+    original_crop: [120, 520, 0, 400]    # Original 640x400 -> 400x400 crop
+    num_classes: 4
+
+  # Domain 2: Swirski (pupil ellipse -> binary mask)
+  swirski:
+    root: /home/iulab1/PycharmProjects/transUnet/Swirski_Dataset
+    subsets: [p1-left, p1-right, p2-left, p2-right]
+    label_type: ellipse  # pupil-ellipses.txt -> binary mask conversion
+
+  # Domain 3: LPW (segment label videos)
+  lpw:
+    video_root: /home/iulab1/PycharmProjects/transUnet/LPW
+    segment_label_root: /home/iulab1/PycharmProjects/nnUNet/Pupils in the wild improved
+    label_type: video_mask  # _pupil.mp4 + _eyelid.mp4 -> binary mask
+    skip_missing_labels: true
+
+training:
+  batch_size: 8
+  epochs: 1000
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+  freeze_encoder_epochs: 0
+  use_ddp: true                # Use DistributedDataParallel for dual GPU
+  gpu_ids: [0, 1]
+
+  early_stopping:
+    patience: 100
+    min_epochs: 200
+
+losses:
+  seg:
+    type: dice_ce
+    weight: 1.0
+    dice_weight: 0.5
+    ce_weight: 0.5
+  domain_consistency:
+    weight: 0.3
+    temperature: 0.07
+  structural_contrastive:
+    weight: 0.1
+    num_negatives: 256
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: sagd
