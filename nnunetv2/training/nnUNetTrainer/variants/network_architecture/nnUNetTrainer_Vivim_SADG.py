@@ -308,6 +308,21 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         self.configuration_manager.configuration['patch_size'] = model_patch_size
         self.configuration_manager.configuration['batch_size'] = dynamic_batch_size
 
+        # Register network architecture parameters into nnUNet ConfigurationManager natively
+        self.configuration_manager.configuration['architecture'] = {
+            'network_class_name': 'VivimSAGDWrapper',
+            'arch_kwargs': {
+                'num_input_channels': self.num_input_channels,
+                'num_output_channels': self.label_manager.num_segmentation_heads,
+                'base_channels': self.sadg_cfg.model.base_channels,
+                'd_state': self.sadg_cfg.model.mamba.d_state,
+                'd_conv': self.sadg_cfg.model.mamba.d_conv,
+                'expand': self.sadg_cfg.model.mamba.expand,
+                'patch_size': list(self.configuration_manager.patch_size),
+                'batch_size': self.configuration_manager.batch_size,
+            }
+        }
+
         # Loss
         self.sadg_loss = None  # Initialized in _build_loss
 
@@ -586,9 +601,10 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         num_output_channels: int,
         enable_deep_supervision: bool = False,
     ) -> nn.Module:
-        """Build Vivim + SAGD network from config."""
+        """Build Vivim + SAGD network dynamically managed by nnUNet ConfigurationManager."""
         config_path = os.path.join(PROJECT_ROOT, 'configs', 'sadg_vivim.yaml')
         cfg = load_config(config_path)
 
-        print("[SAGD] Building Vivim + SAS + HDM + SGA network!", flush=True)
+        arch_info = configuration_manager.configuration.get('architecture', {})
+        print(f"[SAGD] Building Vivim + SAS + HDM + SGA network from nnUNet ConfigurationManager (num_classes={num_output_channels}, patch_size={configuration_manager.patch_size}, batch_size={configuration_manager.batch_size})!", flush=True)
         return VivimSAGDWrapper(cfg)
