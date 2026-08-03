@@ -1,0 +1,56 @@
+experiment:
+  name: vivim_weakmed_eyeball
+  seed: 42
+
+ablation:
+  use_mamba: true
+  use_weakmed: true
+  use_eyeball_head: true
+
+model:
+  backbone: vivim
+  base_channels: 32
+  num_classes: 4
+  eyeball_head:
+    enabled: true
+  mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+
+data:
+  dataset: openeds_sequence
+  sequence_root: ${DATA_ROOT}/Openedsdata2019/Sequence_Extracted
+  pseudo_label_root: ${DATA_ROOT}/Openedsdata2019/Sequence_PseudoLabels_400
+  temporal_window: 3
+  crop: [120, 520, 0, 400]
+  padded_resolution: [448, 448]
+  normalize:
+    mean: 86.45
+    std: 39.94
+
+training:
+  batch_size: 8
+  epochs: 150
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+  freeze_encoder_epochs: 20    # Freeze encoder for first 20 epochs, then full FT
+  early_stopping:
+    patience: 30
+    min_epochs: 50
+
+losses:
+  seg:
+    weight: 1.0
+  weakmed:
+    weight: 0.5               # Total WeakMEd loss weight relative to seg loss
+    m2b:
+      weight: 1.0             # M2B transform loss (BCE + Dice vs box mask)
+    sc:
+      weight: 1.0             # Scale Consistency loss (symmetric KL)
+      scale_factor: 0.5       # Downscale factor for second scale
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: weakmed_eyeball

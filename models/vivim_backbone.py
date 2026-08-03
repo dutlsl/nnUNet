@@ -39,10 +39,12 @@ class VivimBackbone(nn.Module):
         use_mamba: bool = True,
         use_sphere_head: bool = False,
         sphere_head_cfg: dict = None,
+        use_eyeball_head: bool = False,
     ):
         super().__init__()
         self.use_mamba = use_mamba
         self.use_sphere_head = use_sphere_head
+        self.use_eyeball_head = use_eyeball_head
 
         # Encoder stages
         self.enc1 = ConvBlock(in_channels, base_channels)
@@ -87,15 +89,21 @@ class VivimBackbone(nn.Module):
                 sharpness=sphere_head_cfg.get('sharpness', 20.0) if isinstance(sphere_head_cfg, dict) else getattr(sphere_head_cfg, 'sharpness', 20.0),
             )
 
-    def forward(self, x: torch.Tensor) -> dict:
+        # Optional Eyeball Head (v1 1-class binary mask head)
+        if self.use_eyeball_head:
+            self.eyeball_head = nn.Sequential(
+                nn.Conv2d(base_channels, base_channels // 2, 3, padding=1, bias=False),
+                nn.BatchNorm2d(base_channels // 2),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Conv2d(base_channels // 2, 1, 1),
+            )
+
+    def forward(self, x: torch.Tensor):
         """
         Args:
             x: [B, T, C, H, W] - Video frame sequence
         Returns:
-            dict with:
-                'seg_logits': [B, Num_Classes, H, W] - Segmentation logits
-                'sphere_params': [B, 3] - (cx, cy, r) if sphere_head enabled
-                'sphere_mask': [B, 1, H, W] - Rendered circle mask if sphere_head enabled
+            dict or tensor with seg_logits, eyeball, sphere_params, sphere_mask
         """
         B, T, C, H, W = x.shape
 
@@ -139,12 +147,17 @@ class VivimBackbone(nn.Module):
 
         seg_logits = self.final_cls(d1)  # [B, Num_Classes, H, W]
 
-        result = {'seg_logits': seg_logits}
+        result = {'seg_logits': seg_logits, 'seg': seg_logits}
 
-        # Sphere Head branch (from bottleneck features)
+        if self.use_eyeball_head and hasattr(self, 'eyeball_head'):
+            result['eyeball'] = self.eyeball_head(d1)  # [B, 1, H, W]
+
         if self.use_sphere_head and hasattr(self, 'sphere_head'):
             sphere_out = self.sphere_head(b_last, H=H, W=W)
             result['sphere_params'] = sphere_out['params']  # [B, 3]
             result['sphere_mask'] = sphere_out['mask']       # [B, 1, H, W]
+
+        if not self.use_sphere_head and not self.use_eyeball_head:
+            return seg_logits
 
         return result

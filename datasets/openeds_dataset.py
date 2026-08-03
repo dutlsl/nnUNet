@@ -83,6 +83,13 @@ class OpenEDS400SequenceDataset(Dataset):
         """
         Extract tight square bounding box from Sclera(1) ∪ Iris(2) ∪ Pupil(3) region.
         The union of these three classes approximates the visible eyeball area.
+        The tight BB is expanded to a square (max side length) for WeakMEd M2B supervision.
+
+        Args:
+            label: [H, W] — integer class label map (0=BG, 1=Sclera, 2=Iris, 3=Pupil)
+
+        Returns:
+            bbox: [4] — (x1, y1, x2, y2) square bounding box in pixel coordinates
         """
         eyeball_mask = (label >= 1)  # Sclera ∪ Iris ∪ Pupil
         if not eyeball_mask.any():
