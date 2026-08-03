@@ -55,6 +55,19 @@ class CDS2D(nn.Module):
             grid_x.reshape(-1) / max(feature_w - 1, 1),
         ], dim=-1))
 
+    def _get_grid_coords(self, h: int, w: int, device: torch.device) -> torch.Tensor:
+        if h == self.feature_h and w == self.feature_w and hasattr(self, 'grid_coords'):
+            return self.grid_coords.to(device)
+        grid_y, grid_x = torch.meshgrid(
+            torch.arange(h, dtype=torch.float32, device=device),
+            torch.arange(w, dtype=torch.float32, device=device),
+            indexing='ij'
+        )
+        return torch.stack([
+            grid_y.reshape(-1) / max(h - 1, 1),
+            grid_x.reshape(-1) / max(w - 1, 1),
+        ], dim=-1)
+
     def forward(self, features: torch.Tensor) -> torch.LongTensor:
         """
         Compute CDS ordering for each sample in the batch.
@@ -65,15 +78,15 @@ class CDS2D(nn.Module):
         Returns:
             order: [B, N] indices for serialization (N = H*W)
         """
-        B = features.shape[0]
+        B, C, H, W = features.shape
         device = features.device
 
         # Estimate centroid from features
         centroid = self.centroid_head(features)  # [B, 2] -> (cy_norm, cx_norm)
 
-        # Compute distance from each grid position to the estimated centroid
-        # grid_coords: [N, 2], centroid: [B, 2]
-        grid = self.grid_coords.unsqueeze(0).expand(B, -1, -1)  # [B, N, 2]
+        # Dynamically get grid coordinates for HxW
+        grid_coords = self._get_grid_coords(H, W, device)  # [N, 2]
+        grid = grid_coords.unsqueeze(0).expand(B, -1, -1)  # [B, N, 2]
         cent = centroid.unsqueeze(1)  # [B, 1, 2]
 
         # Euclidean distance from centroid
@@ -136,6 +149,11 @@ class GCS2D(nn.Module):
                             adj[idx, nidx] = True
         return adj
 
+    def _get_adj_mask(self, h: int, w: int, device: torch.device) -> torch.Tensor:
+        if h == self.feature_h and w == self.feature_w and hasattr(self, 'adj_mask'):
+            return self.adj_mask.to(device)
+        return self._build_grid_adjacency(h, w).to(device)
+
     def forward(self, features: torch.Tensor) -> torch.LongTensor:
         """
         Compute GCS ordering via Fiedler vector of feature-weighted Laplacian.
@@ -161,7 +179,8 @@ class GCS2D(nn.Module):
         affinity = torch.bmm(feat_norm, feat_norm.transpose(1, 2))  # [B, N, N]
 
         # Apply spatial adjacency mask + heat kernel
-        adj_mask = self.adj_mask.unsqueeze(0).expand(B, -1, -1).to(device)
+        H, W = features.shape[2:]
+        adj_mask = self._get_adj_mask(H, W, device).unsqueeze(0).expand(B, -1, -1)
         affinity = affinity * adj_mask.float()
         affinity = torch.exp(affinity * self.diffusion_time)
         affinity = affinity * adj_mask.float()  # Zero out non-adjacent

@@ -166,27 +166,19 @@ class StructuralContrastiveLoss(nn.Module):
         p_norm = F.normalize(primary_tokens, dim=-1)  # [B, N, C]
         a_norm = F.normalize(auxiliary_tokens, dim=-1)  # [B, N, C]
 
-        # Sample anchor-positive pairs (same position = positive)
+        # Sample anchor positions
         num_samples = min(self.num_negatives, N)
-        indices = torch.randperm(N, device=primary_tokens.device)[:num_samples]
+        indices = torch.randperm(N, device=primary_tokens.device)[:num_samples]  # [num_samples]
 
-        anchors = p_norm[:, indices, :]  # [B, num_samples, C]
-        positives = a_norm[:, indices, :]  # [B, num_samples, C]
+        anchors = p_norm[:, indices, :]  # [B_min, num_samples, C]
 
-        # Positive similarity
-        pos_sim = (anchors * positives).sum(dim=-1) / self.temperature  # [B, num_samples]
+        # Compute full similarity matrix between sampled anchors and all auxiliary tokens
+        sim_matrix = torch.bmm(anchors, a_norm.transpose(1, 2)) / self.temperature  # [B_min, num_samples, N]
 
-        # Negative: all other positions from auxiliary domain
-        neg_features = a_norm  # [B, N, C]
-        neg_sim = torch.bmm(
-            anchors, neg_features.transpose(1, 2)
-        ) / self.temperature  # [B, num_samples, N]
+        # Target for anchor i is exact token position indices[i]
+        labels = indices.unsqueeze(0).expand(B_min, -1)  # [B_min, num_samples]
 
-        # InfoNCE loss
-        logits = torch.cat([pos_sim.unsqueeze(-1), neg_sim], dim=-1)  # [B, num_samples, 1+N]
-        labels = torch.zeros(B_min, num_samples, dtype=torch.long, device=primary_tokens.device)
-
-        loss = F.cross_entropy(logits.reshape(-1, 1 + N), labels.reshape(-1))
+        loss = F.cross_entropy(sim_matrix.reshape(-1, N), labels.reshape(-1))
         return loss
 
 

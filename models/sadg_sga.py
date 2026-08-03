@@ -46,17 +46,29 @@ class SourcePrototypeBank(nn.Module):
         )
 
     @torch.no_grad()
-    def update(self, features: torch.Tensor, labels: torch.Tensor):
+    def update(
+        self,
+        features: torch.Tensor,
+        labels: torch.Tensor,
+        spatial_shape: Optional[Tuple[int, int]] = None,
+    ):
         """
         Update prototypes via EMA using labeled source domain features.
 
         Args:
             features: [B, N, C] token features
             labels: [B, H, W] segmentation labels (will be downsampled to match N)
+            spatial_shape: (H_feat, W_feat) feature map dimensions
         """
         B, N, C = features.shape
         labels = labels[:B]
-        H_feat = W_feat = int(N ** 0.5)
+
+        if spatial_shape is not None:
+            H_feat, W_feat = spatial_shape
+        else:
+            aspect_ratio = labels.shape[-1] / max(labels.shape[-2], 1)
+            H_feat = max(int((N / aspect_ratio) ** 0.5), 1)
+            W_feat = N // H_feat
 
         # Downsample labels to feature resolution
         labels_down = F.interpolate(
@@ -180,11 +192,13 @@ class SpectralGraphAlignment(nn.Module):
         self,
         features: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
+        spatial_shape: Optional[Tuple[int, int]] = None,
     ) -> torch.Tensor:
         """
         Args:
             features: [B, N, C] token features from the model
             labels: [B, H, W] ground truth labels (training only, for prototype update)
+            spatial_shape: (H_feat, W_feat) optional spatial shape
 
         Returns:
             aligned_features: [B, N, C] spectrally aligned features
@@ -192,7 +206,7 @@ class SpectralGraphAlignment(nn.Module):
         if self.training:
             # Training: only update prototypes, pass features through
             if labels is not None:
-                self.prototype_bank.update(features.detach(), labels)
+                self.prototype_bank.update(features.detach(), labels, spatial_shape=spatial_shape)
             return features
 
         # Test-time: spectral graph alignment
