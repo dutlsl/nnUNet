@@ -84,11 +84,11 @@ data:
     skip_missing_labels: true
 
 training:
-  batch_size: 8
+  batch_size: 24
   epochs: 1000
   lr: 0.001
   weight_decay: 0.0001
-  num_workers: 4
+  num_workers: 8
   freeze_encoder_epochs: 0
   use_ddp: true                # Use DistributedDataParallel for dual GPU
   gpu_ids: [0, 1]
@@ -111,5 +111,5 @@ losses:
     num_negatives: 256
 
 logging:
-  wandb_project: eyeball-3d
+  wandb_project: sagd-eyeball
   wandb_run_prefix: sagd
