@@ -33,15 +33,12 @@ class RITnetPreprocessor:
         self.target_size = target_size
         self.gamma = gamma
 
+        self.clahe_clip_limit = clahe_clip_limit
+        self.clahe_tile_grid = clahe_tile_grid
+
         # Precompute gamma LUT
         table = 255.0 * (np.linspace(0, 1, 256) ** gamma)
         self.gamma_table = table.astype(np.uint8)
-
-        # CLAHE
-        self.clahe = cv2.createCLAHE(
-            clipLimit=clahe_clip_limit,
-            tileGridSize=clahe_tile_grid,
-        )
 
     def __call__(self, img: np.ndarray) -> np.ndarray:
         """
@@ -59,8 +56,12 @@ class RITnetPreprocessor:
         # Gamma correction
         img = cv2.LUT(img, self.gamma_table)
 
-        # CLAHE
-        img = self.clahe.apply(img)
+        # CLAHE (created on-the-fly to ensure multiprocessing DataLoader picklability)
+        clahe = cv2.createCLAHE(
+            clipLimit=self.clahe_clip_limit,
+            tileGridSize=self.clahe_tile_grid,
+        )
+        img = clahe.apply(img)
 
         # Normalize to [-1, 1]
         img = img.astype(np.float32) / 255.0
