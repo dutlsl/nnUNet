@@ -84,18 +84,8 @@ data:
     skip_missing_labels: true
 
 training:
-  batch_size: 24
-  epochs: 1000
-  lr: 0.001
-  weight_decay: 0.0001
   num_workers: 0
-  freeze_encoder_epochs: 0
-  use_ddp: true                # Use DistributedDataParallel for dual GPU
   gpu_ids: [0, 1]
-
-  early_stopping:
-    patience: 100
-    min_epochs: 200
 
 losses:
   seg:

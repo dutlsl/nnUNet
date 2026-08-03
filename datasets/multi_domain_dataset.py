@@ -577,13 +577,18 @@ class MultiDomainBatchSampler:
         return self.num_iterations
 
 
-def get_multi_domain_dataloaders(cfg) -> Dict[str, DataLoader]:
+def get_multi_domain_dataloaders(
+    cfg, batch_size: Optional[int] = None, num_iterations: int = 250
+) -> Dict[str, DataLoader]:
     """
-    Build multi-domain DataLoaders from SAGD config.
+    Build multi-domain DataLoaders dynamically configured by nnUNetTrainer.
 
     Returns:
         dict with 'train' and 'validation' DataLoaders
     """
+    if batch_size is None:
+        batch_size = getattr(cfg.training, 'batch_size', 12)
+
     preprocessor = RITnetPreprocessor(
         target_size=tuple(cfg.data.input_resolution),
         gamma=cfg.data.preprocess.gamma,
@@ -629,29 +634,30 @@ def get_multi_domain_dataloaders(cfg) -> Dict[str, DataLoader]:
         skip_missing_labels=lpw_cfg.skip_missing_labels,
     )
 
-    # Domain-balanced batch sampler: 2 samples per domain = 6 samples per step, B_min = 2
     domain_list = [openeds_train, swirski_ds, lpw_ds]
     multi_ds = MultiDomainDataset(domain_list)
-    samples_per_domain = max(2, cfg.training.batch_size // 3)
+    samples_per_domain = max(2, batch_size // 3)
+    num_workers = getattr(cfg.training, 'num_workers', 0)
+
     batch_sampler = MultiDomainBatchSampler(
         domain_list,
         samples_per_domain=samples_per_domain,
-        num_iterations=250,
+        num_iterations=num_iterations,
     )
 
     loaders = {
         'train': DataLoader(
             multi_ds,
             batch_sampler=batch_sampler,
-            num_workers=cfg.training.num_workers,
+            num_workers=num_workers,
             pin_memory=True,
             collate_fn=collate_multi_domain,
         ),
         'validation': DataLoader(
             openeds_val,
-            batch_size=cfg.training.batch_size,
+            batch_size=batch_size,
             shuffle=False,
-            num_workers=cfg.training.num_workers,
+            num_workers=num_workers,
             pin_memory=True,
         ),
     }

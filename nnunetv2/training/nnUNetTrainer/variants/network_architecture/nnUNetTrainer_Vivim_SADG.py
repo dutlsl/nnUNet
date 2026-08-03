@@ -380,10 +380,15 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         pass
 
     def get_dataloaders(self):
-        """Build multi-domain DataLoaders from SAGD config."""
-        print("[SAGD] Building multi-domain DataLoaders (OpenEDS + Swirski + LPW)...", flush=True)
+        """Build multi-domain DataLoaders dynamically managed by nnUNet plans batch_size."""
+        batch_size = self.configuration_manager.batch_size
+        print(f"[SAGD] Building multi-domain DataLoaders (batch_size={batch_size}, num_iterations={self.num_iterations_per_epoch})...", flush=True)
 
-        loaders = get_multi_domain_dataloaders(self.sadg_cfg)
+        loaders = get_multi_domain_dataloaders(
+            self.sadg_cfg,
+            batch_size=batch_size,
+            num_iterations=self.num_iterations_per_epoch,
+        )
 
         train_wrapper = MultiDomainDataLoaderWrapper(loaders['train'], self.device)
         val_wrapper = SingleDomainDataLoaderWrapper(loaders['validation'], self.device)
