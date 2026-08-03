@@ -114,13 +114,13 @@ class DomainConsistencyLoss(nn.Module):
             p_soft = primary_soft[:B_min]
             a_soft = aux_soft[:B_min]
 
-            # KL divergence (symmetric)
+            # KL divergence (symmetric, averaged per pixel across channels)
             kl_pa = F.kl_div(
-                torch.log(p_soft + 1e-8), a_soft, reduction='batchmean'
-            )
+                torch.log(p_soft + 1e-8), a_soft, reduction='none'
+            ).sum(dim=1).mean()
             kl_ap = F.kl_div(
-                torch.log(a_soft + 1e-8), p_soft, reduction='batchmean'
-            )
+                torch.log(a_soft + 1e-8), p_soft, reduction='none'
+            ).sum(dim=1).mean()
 
             total_loss = total_loss + (kl_pa + kl_ap) / 2.0
             count += 1
