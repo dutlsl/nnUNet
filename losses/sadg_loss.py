@@ -66,7 +66,7 @@ class DomainConsistencyLoss(nn.Module):
     domain-specific predictions.
     """
 
-    def __init__(self, temperature: float = 0.07):
+    def __init__(self, temperature: float = 1.0):
         super().__init__()
         self.temperature = temperature
 

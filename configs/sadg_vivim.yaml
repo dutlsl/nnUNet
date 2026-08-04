@@ -95,10 +95,10 @@ losses:
     dice_weight: 0.5
     ce_weight: 0.5
   domain_consistency:
-    weight: 0.3
-    temperature: 0.07
-  structural_contrastive:
     weight: 0.1
+    temperature: 1.0
+  structural_contrastive:
+    weight: 0.05
     num_negatives: 256
 
 logging:
