@@ -175,7 +175,7 @@ class VivimBackbone(nn.Module):
 
             # SGA: Spectral Graph Alignment (train=EMA update, test=alignment)
             if self.sga is not None:
-                serialized_tokens = self.sga(serialized_tokens, labels)
+                serialized_tokens = self.sga(serialized_tokens, labels, inv_cds_order=inv_cds_order)
 
             # Unscramble tokens back to original 2D spatial raster order BEFORE passing to UNet decoder
             unscrambled = self.sas.unscramble(serialized_tokens, inv_cds_order)

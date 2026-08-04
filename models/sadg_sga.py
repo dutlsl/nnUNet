@@ -50,6 +50,7 @@ class SourcePrototypeBank(nn.Module):
         self,
         features: torch.Tensor,
         labels: torch.Tensor,
+        inv_cds_order: Optional[torch.Tensor] = None,
         spatial_shape: Optional[Tuple[int, int]] = None,
     ):
         """
@@ -58,10 +59,16 @@ class SourcePrototypeBank(nn.Module):
         Args:
             features: [B, N, C] token features
             labels: [B, H, W] segmentation labels (will be downsampled to match N)
+            inv_cds_order: [B, N] inverse permutation to restore 2D spatial raster order
             spatial_shape: (H_feat, W_feat) feature map dimensions
         """
         B, N, C = features.shape
         labels = labels[:B]
+
+        # Unscramble features back to 2D spatial raster order before matching 2D ground truth labels
+        if inv_cds_order is not None:
+            inv_idx = inv_cds_order[:B].unsqueeze(-1).expand(-1, -1, C)
+            features = torch.gather(features, 1, inv_idx)
 
         if spatial_shape is not None:
             H_feat, W_feat = spatial_shape
@@ -204,12 +211,14 @@ class SpectralGraphAlignment(nn.Module):
         self,
         features: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
+        inv_cds_order: Optional[torch.Tensor] = None,
         spatial_shape: Optional[Tuple[int, int]] = None,
     ) -> torch.Tensor:
         """
         Args:
             features: [B, N, C] token features from the model
             labels: [B, H, W] ground truth labels (training only, for prototype update)
+            inv_cds_order: [B, N] optional inverse permutation for 2D spatial unscrambling
             spatial_shape: (H_feat, W_feat) optional spatial shape
 
         Returns:
@@ -218,7 +227,12 @@ class SpectralGraphAlignment(nn.Module):
         if self.training:
             # Training: only update prototypes, pass features through
             if labels is not None:
-                self.prototype_bank.update(features.detach(), labels, spatial_shape=spatial_shape)
+                self.prototype_bank.update(
+                    features.detach(),
+                    labels,
+                    inv_cds_order=inv_cds_order,
+                    spatial_shape=spatial_shape,
+                )
             return features
 
         # Test-time: spectral graph alignment

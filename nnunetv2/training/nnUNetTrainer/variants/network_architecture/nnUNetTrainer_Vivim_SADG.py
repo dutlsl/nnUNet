@@ -139,12 +139,16 @@ class VivimSAGDWrapper(nn.Module):
             hdm_output = self.hdm(serialized_list, domain_ids)
 
             # SGA: update prototypes with HDM-fused tokens
+            primary_out = domain_outputs[0]
             if self.sga is not None and 0 in domain_batches:
                 primary_labels = domain_batches[0]['label']
-                hdm_output = self.sga(hdm_output, primary_labels)
+                hdm_output = self.sga(
+                    hdm_output,
+                    primary_labels,
+                    inv_cds_order=primary_out.get('inv_cds_order', None)
+                )
 
             # Decode primary domain from HDM-fused tokens
-            primary_out = domain_outputs[0]
             primary_seg = self.backbone.decode_from_tokens(
                 hdm_output,
                 primary_out['skips'],
@@ -158,7 +162,11 @@ class VivimSAGDWrapper(nn.Module):
 
             if tokens is not None:
                 if self.sga is not None:
-                    tokens = self.sga(tokens, domain_batches[0].get('label', None))
+                    tokens = self.sga(
+                        tokens,
+                        domain_batches[0].get('label', None),
+                        inv_cds_order=primary_out.get('inv_cds_order', None)
+                    )
                 primary_seg = self.backbone.decode_from_tokens(
                     tokens,
                     primary_out['skips'],
