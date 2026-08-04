@@ -310,9 +310,8 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         vram_scaling_factor = plan_patch_voxels / max(model_patch_voxels, 1.0)  # ~7.778
         raw_dynamic_bs = int(round(self.configuration_manager.batch_size * vram_scaling_factor))  # 11 * 7.778 = 85
 
-        # Align to multi-domain 3-domain sampling (nearest multiple of 3 domains, capped at 24 for DDP stability)
-        num_domains = getattr(self.sadg_cfg.model.hdm, 'num_domains', 3)
-        dynamic_batch_size = (min(raw_dynamic_bs, 24) // num_domains) * num_domains  # 24 (8/domain)
+        # Align to multi-domain 3-domain sampling (nearest multiple of 3 domains)
+        dynamic_batch_size = (raw_dynamic_bs // num_domains) * num_domains  # e.g. 84 (28/domain)
 
         # Update configuration_manager dynamically
         self.configuration_manager.configuration['patch_size'] = model_patch_size

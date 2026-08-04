@@ -14,7 +14,7 @@ def compute_dice_score(pred: torch.Tensor, target: torch.Tensor, num_classes: in
     if pred.ndim == 4:
         pred = pred.argmax(dim=1)
 
-    class_names = ['Background', 'Sclera', 'Iris', 'Pupil']
+    class_names = ['Background', 'Pupil', 'Iris', 'Sclera']
     dices = {}
 
     for c in range(num_classes):

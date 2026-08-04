@@ -126,10 +126,13 @@ class OpenEDSDomainDataset(Dataset):
                     fname = os.path.splitext(os.path.basename(target_file))[0]
 
                     rel_dir = os.path.relpath(parent_dir, image_dir)
-                    if rel_dir == '.':
-                        label_path = os.path.join(label_dir, f"{fname}.npy")
-                    else:
+                    label_path = os.path.join(label_dir, f"{fname}.npy")
+                    if not os.path.exists(label_path):
+                        label_path = os.path.join(label_dir, 'labels', f"{fname}.npy")
+                    if not os.path.exists(label_path) and rel_dir != '.':
                         label_path = os.path.join(label_dir, rel_dir, f"{fname}.npy")
+                    if not os.path.exists(label_path) and rel_dir != '.':
+                        label_path = os.path.join(label_dir, rel_dir.replace('images', 'labels'), f"{fname}.npy")
 
                     if os.path.exists(label_path):
                         self.samples.append((window_files, label_path))

@@ -63,10 +63,10 @@ data:
     normalize_mean: 0.5
     normalize_std: 0.5
 
-  # Domain 1: OpenEDS 2019 (primary, 4-class labels)
+  # Domain 1: OpenEDS 2019 (primary, official 4-class ground truth labels)
   openeds:
-    sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
-    pseudo_label_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_400
+    sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Semantic_Segmentation_Dataset
+    pseudo_label_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Semantic_Segmentation_Dataset
     original_crop: [120, 520, 0, 400]    # Original 640x400 -> 400x400 crop
     num_classes: 4
 
