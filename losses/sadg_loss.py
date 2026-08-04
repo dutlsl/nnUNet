@@ -49,8 +49,8 @@ class DiceCELoss(nn.Module):
     ):
         super().__init__()
         self.dice = DiceLoss(num_classes=num_classes)
-        # Class weights: Background 0.2, Pupil 1.0, Iris 1.5, Sclera 1.5
-        self.register_buffer('class_weights', torch.tensor([0.2, 1.0, 1.5, 1.5]))
+        # Class weights: Background 0.1, Pupil 1.0, Iris 3.0, Sclera 3.0
+        self.register_buffer('class_weights', torch.tensor([0.1, 1.0, 3.0, 3.0]))
         self.dice_weight = dice_weight
         self.ce_weight = ce_weight
 
