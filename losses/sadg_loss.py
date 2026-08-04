@@ -14,7 +14,7 @@ from typing import Dict, Optional
 
 
 class DiceLoss(nn.Module):
-    """Soft Dice Loss for multi-class segmentation."""
+    """Soft Dice Loss for multi-class foreground segmentation (excludes background channel 0)."""
 
     def __init__(self, num_classes: int = 4, smooth: float = 1e-5):
         super().__init__()
@@ -34,11 +34,12 @@ class DiceLoss(nn.Module):
         union = pred_soft.sum(dim=(2, 3)) + target_onehot.sum(dim=(2, 3))
 
         dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
-        return 1.0 - dice.mean()
+        # Exclude background channel 0, average across foreground classes (Pupil, Iris, Sclera)
+        return 1.0 - dice[:, 1:].mean()
 
 
 class DiceCELoss(nn.Module):
-    """Combined Dice + CrossEntropy loss for segmentation."""
+    """Combined Dice + Weighted CrossEntropy loss for foreground-balanced segmentation."""
 
     def __init__(
         self,
@@ -48,13 +49,14 @@ class DiceCELoss(nn.Module):
     ):
         super().__init__()
         self.dice = DiceLoss(num_classes=num_classes)
-        self.ce = nn.CrossEntropyLoss()
+        # Class weights: Background 0.2, Pupil 1.0, Iris 1.5, Sclera 1.5
+        self.register_buffer('class_weights', torch.tensor([0.2, 1.0, 1.5, 1.5]))
         self.dice_weight = dice_weight
         self.ce_weight = ce_weight
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         loss_dice = self.dice(pred, target)
-        loss_ce = self.ce(pred, target)
+        loss_ce = F.cross_entropy(pred, target, weight=self.class_weights.to(pred.device))
         return self.dice_weight * loss_dice + self.ce_weight * loss_ce
 
 
