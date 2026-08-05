@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 
 class OpenEDS400SequenceDataset(Dataset):
@@ -107,6 +107,112 @@ class OpenEDS400SequenceDataset(Dataset):
         }
 
 
+class RITnetPreprocessor:
+    """
+    RITnet preprocessing pipeline:
+    Resize 192x192 → Gamma 0.8 → CLAHE 1.5 → Normalize [-1, 1]
+    """
+    def __init__(
+        self,
+        target_size: Tuple[int, int] = (192, 192),
+        gamma: float = 0.8,
+        clahe_clip_limit: float = 1.5,
+        clahe_tile_grid: Tuple[int, int] = (8, 8),
+    ):
+        self.target_size = target_size
+        self.gamma = gamma
+        self.clahe_clip_limit = clahe_clip_limit
+        self.clahe_tile_grid = clahe_tile_grid
+        table = 255.0 * (np.linspace(0, 1, 256) ** gamma)
+        self.gamma_table = table.astype(np.uint8)
+
+    def __call__(self, img_uint8: np.ndarray) -> np.ndarray:
+        if img_uint8.shape[:2] != self.target_size:
+            img_uint8 = cv2.resize(img_uint8, (self.target_size[1], self.target_size[0]), interpolation=cv2.INTER_LINEAR)
+        img_gamma = cv2.LUT(img_uint8, self.gamma_table)
+        clahe = cv2.createCLAHE(clipLimit=self.clahe_clip_limit, tileGridSize=self.clahe_tile_grid)
+        img_clahe = clahe.apply(img_gamma)
+        img_float = img_clahe.astype(np.float32) / 255.0
+        return (img_float - 0.5) / 0.5
+
+
+class OpenEDS192SequenceDataset(Dataset):
+    """
+    OpenEDS 2019 Sequential Dataset with 192x192 Resize & RITnet Preprocessing (T=3).
+    """
+    def __init__(
+        self,
+        image_dir: str,
+        label_dir: str,
+        temporal_window: int = 3,
+        preprocessor: Optional[RITnetPreprocessor] = None,
+    ):
+        super().__init__()
+        self.temporal_window = temporal_window
+        self.preprocessor = preprocessor or RITnetPreprocessor()
+        self.image_dir = image_dir
+        self.label_dir = label_dir
+
+        all_pngs = sorted(glob.glob(os.path.join(image_dir, '**', '*.png'), recursive=True))
+        if len(all_pngs) == 0:
+            all_pngs = sorted(glob.glob(os.path.join(image_dir, '*.png')))
+
+        if len(all_pngs) == 0:
+            self.samples = []
+            print(f"[OpenEDS192SequenceDataset] Warning: No PNG files found in {image_dir}")
+            return
+
+        self.samples: List[Tuple[List[str], str]] = []
+        dir_to_files: Dict[str, List[str]] = {}
+        for p in all_pngs:
+            parent = os.path.dirname(p)
+            if parent not in dir_to_files:
+                dir_to_files[parent] = []
+            dir_to_files[parent].append(p)
+
+        for parent_dir, file_list in dir_to_files.items():
+            sorted_files = sorted(file_list)
+            if len(sorted_files) < temporal_window:
+                continue
+            for end_idx in range(temporal_window - 1, len(sorted_files)):
+                start_idx = end_idx - temporal_window + 1
+                window_files = sorted_files[start_idx:end_idx + 1]
+                target_file = window_files[-1]
+                fname = os.path.splitext(os.path.basename(target_file))[0]
+                
+                rel_dir = os.path.relpath(parent_dir, image_dir)
+                if rel_dir == '.':
+                    label_path = os.path.join(label_dir, f"{fname}.npy")
+                else:
+                    label_path = os.path.join(label_dir, rel_dir, f"{fname}.npy")
+
+                if os.path.exists(label_path):
+                    self.samples.append((window_files, label_path))
+
+        print(f"[OpenEDS192SequenceDataset] {len(self.samples)} sequence samples discovered in {image_dir} (T={temporal_window})")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        window_files, label_path = self.samples[idx]
+        frames = []
+        for fpath in window_files:
+            img = cv2.imread(fpath, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                img = np.zeros((192, 192), dtype=np.uint8)
+            img_prep = self.preprocessor(img)
+            frames.append(img_prep)
+
+        frames_np = np.stack(frames)[:, None]  # [T, 1, 192, 192]
+        label = np.load(label_path).astype(np.int64)  # [192, 192]
+
+        return {
+            'images': torch.from_numpy(frames_np).float(),  # [T, 1, 192, 192]
+            'label': torch.from_numpy(label).long(),        # [192, 192]
+        }
+
+
 def get_openeds_sequence_dataloaders(cfg) -> Dict[str, DataLoader]:
     loaders = {}
     seq_root = cfg.data.sequence_root
@@ -119,14 +225,10 @@ def get_openeds_sequence_dataloaders(cfg) -> Dict[str, DataLoader]:
         if not os.path.isdir(img_dir):
             continue
 
-        ds = OpenEDS400SequenceDataset(
+        ds = OpenEDS192SequenceDataset(
             image_dir=img_dir,
             label_dir=lbl_dir,
             temporal_window=cfg.data.temporal_window,
-            crop=list(cfg.data.crop),
-            padded_resolution=list(cfg.data.padded_resolution),
-            mean=cfg.data.normalize.mean,
-            std=cfg.data.normalize.std,
         )
 
         loaders[split] = DataLoader(

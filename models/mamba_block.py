@@ -9,9 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 try:
+    import selective_scan_cuda
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
     HAS_MAMBA_CUDA = True
-except ImportError:
+except (ImportError, RuntimeError, ModuleNotFoundError):
     HAS_MAMBA_CUDA = False
 
 
@@ -106,12 +107,12 @@ class MambaLayer(nn.Module):
         ssm_params = self.x_proj(x_ssm_in)  # [B, L, 2*d_state + 1]
 
         dt, B_param, C_param = torch.split(ssm_params, [1, self.d_state, self.d_state], dim=-1)
-        dt = F.softplus(self.dt_proj(dt)).transpose(1, 2)  # [B, d_inner, L]
+        dt = F.softplus(self.dt_proj(dt)).transpose(1, 2).to(dtype=x_act.dtype)  # [B, d_inner, L]
 
-        B_param = B_param.transpose(1, 2)  # [B, d_state, L]
-        C_param = C_param.transpose(1, 2)  # [B, d_state, L]
+        B_param = B_param.transpose(1, 2).to(dtype=x_act.dtype)  # [B, d_state, L]
+        C_param = C_param.transpose(1, 2).to(dtype=x_act.dtype)  # [B, d_state, L]
 
-        A = -torch.exp(self.A_log)  # [d_inner, d_state]
+        A = -torch.exp(self.A_log.to(dtype=x_act.dtype))  # [d_inner, d_state]
 
         if HAS_MAMBA_CUDA:
             y = selective_scan_fn(x_act, dt, A, B_param, C_param, self.D)

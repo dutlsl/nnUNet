@@ -12,7 +12,7 @@ sys.path.insert(0, '/home/iulab0/PycharmProjects/nnUNet')
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 from models.vivim_backbone import VivimBackbone
-from datasets.openeds_dataset import OpenEDS400SequenceDataset
+from datasets.openeds_dataset import OpenEDS192SequenceDataset
 
 
 class VivimBackboneNNUNet(nn.Module):
@@ -90,30 +90,22 @@ class nnUNetTrainer_Vivim(nnUNetTrainer):
         """
         print("[nnUNetTrainer_Vivim] Loading True 3-frame Temporal Sequence DataLoader (T=3)!", flush=True)
         seq_root = "/home/iulab0/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted"
-        pseudo_root = "/home/iulab0/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_400"
+        pseudo_root = "/home/iulab0/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_192"
 
-        train_ds = OpenEDS400SequenceDataset(
+        train_ds = OpenEDS192SequenceDataset(
             image_dir=os.path.join(seq_root, 'train'),
             label_dir=os.path.join(pseudo_root, 'train'),
             temporal_window=3,
-            crop=[120, 520, 0, 400],
-            padded_resolution=[448, 448],
-            mean=86.45,
-            std=39.94,
         )
 
-        val_ds = OpenEDS400SequenceDataset(
+        val_ds = OpenEDS192SequenceDataset(
             image_dir=os.path.join(seq_root, 'validation'),
             label_dir=os.path.join(pseudo_root, 'validation'),
             temporal_window=3,
-            crop=[120, 520, 0, 400],
-            padded_resolution=[448, 448],
-            mean=86.45,
-            std=39.94,
         )
 
-        train_loader = DataLoader(train_ds, batch_size=8, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-        val_loader = DataLoader(val_ds, batch_size=8, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
+        train_loader = DataLoader(train_ds, batch_size=self.configuration_manager.batch_size, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+        val_loader = DataLoader(val_ds, batch_size=self.configuration_manager.batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
 
         return nnUNetSequenceDataLoaderWrapper(train_loader), nnUNetSequenceDataLoaderWrapper(val_loader)
 
