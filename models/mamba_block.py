@@ -1,29 +1,25 @@
 """
 Selective State Space Model (SSM) Layer wrapping the official Mamba-3 module.
-Uses mamba_ssm.modules.mamba3.Mamba3 directly from the official state-spaces/mamba package.
+Uses mamba_ssm.modules.mamba3.Mamba3 directly from the state-spaces/mamba package (v2.3.2+).
 
-Supports PyTorch float8 compatibility for Cutlass/Quack API.
+This replaces the previous manual selective_scan_fn / C++ kernel binding approach
+with the official Mamba-3 (arXiv:2603.15569) implementation, which includes:
+  - Exponential-Trapezoidal Discretization
+  - Complex-Valued State Update (RoPE angles)
+  - SISO / MIMO fused Triton kernels
 """
 
 import torch
 import torch.nn as nn
 
-# Compatibility polyfill for torch float8 types required by Cutlass/Quack
-for dt in ['float8_e8m0fnu', 'float4_e2m1fn_x2', 'float8_e4m3fnuz', 'float8_e5m2fnuz']:
-    if not hasattr(torch, dt):
-        setattr(torch, dt, getattr(torch, 'float8_e5m2', torch.float32))
-
-try:
-    from mamba_ssm.modules.mamba3 import Mamba3
-    HAS_MAMBA3 = True
-except ImportError:
-    HAS_MAMBA3 = False
+from mamba_ssm.modules.mamba3 import Mamba3
 
 
 class MambaLayer(nn.Module):
     """
-    MambaLayer delegating sequence scanning to the official Mamba3 module.
-    Interface contract: forward(x: [B, L, D]) -> [B, L, D]
+    Drop-in replacement for the previous hand-rolled MambaLayer.
+    Interface contract:  forward(x: [B, L, D]) -> [B, L, D]
+    All internal SSM logic is delegated to the official Mamba3 module.
     """
 
     def __init__(
@@ -38,17 +34,14 @@ class MambaLayer(nn.Module):
         **kwargs,
     ):
         super().__init__()
-        if HAS_MAMBA3:
-            self.mamba3 = Mamba3(
-                d_model=d_model,
-                d_state=d_state,
-                expand=expand,
-                headdim=headdim,
-                ngroups=ngroups,
-                chunk_size=chunk_size,
-            )
-        else:
-            raise ImportError("mamba_ssm.modules.mamba3.Mamba3 could not be imported.")
+        self.mamba3 = Mamba3(
+            d_model=d_model,
+            d_state=d_state,
+            expand=expand,
+            headdim=headdim,
+            ngroups=ngroups,
+            chunk_size=chunk_size,
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
