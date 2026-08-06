@@ -53,6 +53,11 @@ description: Mandatory rules, architectural constraints, directory layout, and c
 - **단일 통합 평가 스크립트 유도**: 평가 스크립트는 임시 파편화 스크립트를 생성하지 말고 [`evaluate_test.py`](file:///home/iulab0/PycharmProjects/nnUNet/evaluate_test.py) 단일 파일로 깔끔하게 유지한다.
 - **한국어 전용 보고서 및 디렉토리화**: 모든 실험 결과 보고서는 100% 한국어로 작성하고, 리포지토리 루트에 파일들을 방치하지 않으며 `.agents/reports/Official_Test_Report.md` 및 `.agents/reports/assets/`에 정돈 저장한다.
 
+### 규칙 7: WandB 로깅 위생 및 백그라운드 무의미 프로세스/로그 동시 청소 수칙 (필수)
+- **실험적 검증 및 디버깅 실행 시 WandB Offline 준수**: 0에폭 동작 확인, 1000에폭 스트레스 테스트, 빠른 코드/손실 함수 디버깅 등 무의미하거나 임시 검증 목적의 백그라운드 프로세스는 `WANDB_MODE=offline`으로 실행하여 WandB 대시보드 오염을 방지한다.
+- **무의미 프로세스 강제 종료 시 동시 청소**: 백그라운드 프로세스를 도중에 강제 종료(`kill`/`pkill`)하거나 10에폭 미만(또는 0에폭)에서 중단되는 무의미한 시도가 발생한 경우, **프로세스 종료와 동시에 불필요한 로그 파일(`logs/*.log`) 및 WandB Run을 즉시 삭제**하여 로그 및 대시보드를 항상 깔끔하게 유지한다.
+- **WandB Clean Policy (10에폭 미만 미태그 Run 삭제 원칙)**: 메인 실험으로서 태그(Tag)가 지정되어 있거나 10에폭 이상 정상 진행되어 분석 가치가 있는 Run만 WandB에 보존하고, 태그 없는 10에폭 미만 실패/테스트 Run은 정기적으로 청소한다.
+
 ---
 
 ## 📌 Part 3. 프로젝트 디렉토리 레이아웃 (`eyeball-3d-research`)
@@ -97,3 +102,5 @@ eyeball-3d-research/
 - ❌ `img[120:520, 0:400]` 크롭 좌표나 `86.45` 정규화값 리터럴 작성 금지 → Config로 분리
 - ❌ `train_baseline.py`, `train_weakmed.py` 등 실험별 파편화 파일 생성 금지 → `train.py --config configs/*.yaml` 또는 native `nnUNetv2_train` 활용
 - ❌ `/home/iulab0/...` 절대 경로 하드코딩 금지 → `cfg.data.root` 또는 환경변수 주입
+- ❌ 임시/실험적 디버깅 실행을 WandB Online으로 전송하여 대시보드를 오염시키는 행위 금지 → `WANDB_MODE=offline` 사용
+- ❌ 무의미하게 종료된 프로세스의 더미 WandB Run 및 로그 파일(`logs/*.log`)을 방치하는 행위 금지 → 즉시 동시 정리 수칙 준수
