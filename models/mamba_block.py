@@ -12,6 +12,11 @@ with the official Mamba-3 (arXiv:2603.15569) implementation, which includes:
 import torch
 import torch.nn as nn
 
+# Polyfill PyTorch float8 dtypes required by Cutlass/Quack in PyTorch 2.5
+for dt in ['float8_e8m0fnu', 'float4_e2m1fn_x2', 'float8_e4m3fnuz', 'float8_e5m2fnuz']:
+    if not hasattr(torch, dt):
+        setattr(torch, dt, getattr(torch, 'float8_e5m2', torch.float32))
+
 from mamba_ssm.modules.mamba3 import Mamba3
 
 
