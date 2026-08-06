@@ -6,6 +6,12 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 import wandb
 
+try:
+    from utils.config import ConfigDict
+except ModuleNotFoundError:
+    import utils.config
+    ConfigDict = utils.config.ConfigDict
+
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', '..'))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)

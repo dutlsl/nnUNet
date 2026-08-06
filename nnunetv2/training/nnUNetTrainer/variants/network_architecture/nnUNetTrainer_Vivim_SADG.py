@@ -48,10 +48,12 @@ from datasets.multi_domain_dataset import (
     RITnetPreprocessor,
     OpenEDSDomainDataset,
 )
-_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', '..'))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
-from utils.config import ConfigDict, load_config
+try:
+    from utils.config import ConfigDict, load_config
+except ModuleNotFoundError:
+    import utils.config
+    ConfigDict = utils.config.ConfigDict
+    load_config = utils.config.load_config
 from utils.metrics import compute_dice_score
 
 
