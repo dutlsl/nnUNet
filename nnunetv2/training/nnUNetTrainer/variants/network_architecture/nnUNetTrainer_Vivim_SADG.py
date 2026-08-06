@@ -10,6 +10,7 @@ Dual GPU training via DistributedDataParallel.
 import os
 import sys
 import torch
+import torch.nn.functional as F
 import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
@@ -31,6 +32,7 @@ except ImportError:
 from torch.nn.parallel import DistributedDataParallel as DDP
 from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p
 from nnunetv2.utilities.helpers import empty_cache
+from nnunetv2.utilities.collate_outputs import collate_outputs
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 from nnunetv2.training.loss.dice import get_tp_fp_fn_tn
@@ -39,7 +41,7 @@ from models.vivim_backbone import VivimBackbone
 from models.sadg_serialization import StructureAwareSerializer
 from models.sadg_hdm import HDM2D
 from models.sadg_sga import SpectralGraphAlignment
-from losses.sadg_loss import SAGDLoss
+from losses.sadg_loss import SAGDLoss, DiceCELoss
 from datasets.multi_domain_dataset import (
     get_multi_domain_dataloaders,
     collate_multi_domain,
@@ -134,7 +136,7 @@ class VivimSAGDWrapper(nn.Module):
                 serialized_list.append(out['serialized_tokens'])
                 domain_ids.append(d_id)
 
-        # HDM: hierarchical domain modeling
+        # HDM: hierarchical domain modeling (always on primary GPU)
         if self.hdm is not None and len(serialized_list) > 1 and self.training:
             hdm_output = self.hdm(serialized_list, domain_ids)
 
@@ -186,25 +188,23 @@ class VivimSAGDWrapper(nn.Module):
         else:
             raise ValueError("Primary domain (0) not in domain_batches")
 
-        # Also decode auxiliary domains if available (for domain consistency loss)
+        # Auxiliary domains: decode auxiliary ISM outputs into seg logits
+        # for DomainConsistencyLoss (KL divergence between primary and auxiliary predictions)
         aux_seg_list = []
         for d_id in sorted(domain_batches.keys()):
             if d_id == 0:
                 continue
             if d_id in domain_outputs:
                 aux_out = domain_outputs[d_id]
-                if self.hdm is not None and len(serialized_list) > 1:
-                    # Use ISM-only output for auxiliary (we already got HDM for primary)
-                    idx = domain_ids.index(d_id) if d_id in domain_ids else None
-                    if idx is not None and idx < len(serialized_list):
-                        aux_tokens = self.hdm.ism_blocks[d_id](serialized_list[idx])
-                        aux_seg = self.backbone.decode_from_tokens(
-                            aux_tokens,
-                            aux_out['skips'],
-                            aux_out['spatial_shape'],
-                            inv_cds_order=aux_out.get('inv_cds_order', None),
-                        )
-                        aux_seg_list.append(aux_seg)
+                aux_tokens = aux_out.get('serialized_tokens', None)
+                if aux_tokens is not None:
+                    aux_seg = self.backbone.decode_from_tokens(
+                        aux_tokens,
+                        aux_out['skips'],
+                        aux_out['spatial_shape'],
+                        inv_cds_order=aux_out.get('inv_cds_order', None),
+                    )
+                    aux_seg_list.append(aux_seg)
 
         # Gather all serialized tokens for contrastive loss
         primary_tokens = None
@@ -296,22 +296,37 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         self.enable_deep_supervision = False
         self.num_iterations_per_epoch = 250
         self.num_val_iterations_per_epoch = 50
-        # Load SAGD config
-        config_path = os.path.join(PROJECT_ROOT, 'configs', 'sadg_vivim.yaml')
+
+        # Fast validation mode: 1 iteration per epoch for rapid 1000-epoch stress test
+        if os.environ.get('SAGD_FAST_VALIDATE', '0') == '1':
+            self.num_iterations_per_epoch = 1
+            self.num_val_iterations_per_epoch = 1
+            print("[SAGD] ⚡ FAST VALIDATE MODE: 1 iter/epoch for rapid 1000-epoch NaN stress test", flush=True)
+        # Load SAGD config - resolve project root dynamically
+        _project_root = os.environ.get(
+            'NNUNET_PROJECT_ROOT',
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..'))
+        )
+        config_path = os.path.join(_project_root, 'configs', 'sadg_vivim.yaml')
         self.sadg_cfg = load_config(config_path)
+        self._project_root = _project_root
 
-        # --- Dynamic VRAM Scaling & Multi-Domain Plan Calculation ---
-        # Dynamically calculate optimal batch_size for model patch size [192, 192]
-        # using nnUNet's VRAM scaling law: (plan_patch_voxels / model_patch_voxels) * plan_batch_size
-        plan_patch_voxels = float(np.prod(self.configuration_manager.patch_size))  # e.g. 448 * 640 = 286,720
-        model_patch_size = list(self.sadg_cfg.data.input_resolution)  # [192, 192]
-        model_patch_voxels = float(np.prod(model_patch_size))  # 192 * 192 = 36,864
+        # --- Native Dynamic VRAM Planning for Vivim + SADG ---
+        plan_patch_voxels = float(np.prod(self.configuration_manager.patch_size))
+        model_patch_size = list(self.sadg_cfg.data.input_resolution)
+        model_patch_voxels = float(np.prod(model_patch_size))
 
-        vram_scaling_factor = plan_patch_voxels / max(model_patch_voxels, 1.0)  # ~7.778
-        raw_dynamic_bs = int(round(self.configuration_manager.batch_size * vram_scaling_factor))  # 11 * 7.778 = 85
+        vram_scaling_factor = plan_patch_voxels / max(model_patch_voxels, 1.0)
+        raw_dynamic_bs = int(round(self.configuration_manager.batch_size * vram_scaling_factor))
 
-        # Align to multi-domain 3-domain sampling (nearest multiple of 3 domains)
-        dynamic_batch_size = (raw_dynamic_bs // num_domains) * num_domains  # e.g. 84 (28/domain)
+        num_domains = getattr(self.sadg_cfg.model.hdm, 'num_domains', 3)
+        cfg_bs = getattr(self.sadg_cfg.training, 'batch_size', None)
+        if cfg_bs is not None and cfg_bs > 0:
+            target_bs = cfg_bs
+        else:
+            target_bs = raw_dynamic_bs
+
+        dynamic_batch_size = max((target_bs // num_domains) * num_domains, num_domains)
 
         # Update configuration_manager dynamically
         self.configuration_manager.configuration['patch_size'] = model_patch_size
@@ -363,7 +378,8 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             self.logger.update_config({"hparas": logger_config_hparas})
 
     def configure_optimizers(self):
-        """AdamW with PolyLR scheduler."""
+        """AdamW with PolyLR scheduler tuned for pretrained Mamba backbone (3e-4)."""
+        self.initial_lr = 3e-4
         optimizer = torch.optim.AdamW(
             self.network.parameters(),
             self.initial_lr,
@@ -382,12 +398,16 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             self.enable_deep_supervision
         ).to(self.device)
 
-        # Try to load pretrained weights from baseline Vivim
+        # Try to load pretrained weights from baseline Vivim (config-based path resolution)
         ckpt_paths = [
-            os.path.join(PROJECT_ROOT, 'nnUNet_results', 'Dataset600_OpenEDS2019',
+            os.path.join(self._project_root, 'nnUNet_results', 'Dataset600_OpenEDS2019',
                          'nnUNetTrainer_Vivim__nnUNetPlans__2d', 'fold_0', 'checkpoint_final.pth'),
-            '/home/iulab0/PycharmProjects/nnUNet/nnUNet_results/vivim_weakmed_400x400/checkpoint_best.pth',
         ]
+        # Add config-specified pretrained checkpoint if available
+        pretrained_from_cfg = getattr(getattr(self.sadg_cfg, 'training', None), 'pretrained_checkpoint', None)
+        if pretrained_from_cfg:
+            resolved = pretrained_from_cfg.replace('${PROJECT_ROOT}', self._project_root)
+            ckpt_paths.insert(0, resolved)
 
         for ckpt_path in ckpt_paths:
             if os.path.exists(ckpt_path):
@@ -401,35 +421,55 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
                 model_keys = set(self.network.state_dict().keys())
                 new_state_dict = {}
                 for k, v in state_dict.items():
-                    # Skip WeakMed/Sphere related weights
                     if any(skip in k for skip in ['sphere_head', 'weakmed', 'eyeball_head']):
                         continue
-                    # Try direct match
-                    if k in model_keys:
-                        new_state_dict[k] = v
-                    # Try backbone prefix
-                    elif f"backbone.{k}" in model_keys:
-                        new_state_dict[f"backbone.{k}"] = v
+                    
+                    # Match exact key or strip/add prefixes for DDP and backbone
+                    candidates = [
+                        k,
+                        f"backbone.{k}",
+                        f"module.{k}",
+                        f"module.backbone.{k}",
+                    ]
+                    if k.startswith("backbone."):
+                        candidates.append(k[9:])
+                        candidates.append(f"module.{k[9:]}")
+                        candidates.append(f"module.{k}")
+                    if k.startswith("module."):
+                        candidates.append(k[7:])
+
+                    for cand in candidates:
+                        if cand in model_keys:
+                            new_state_dict[cand] = v
+                            break
 
                 if new_state_dict:
                     missing, unexpected = self.network.load_state_dict(
                         new_state_dict, strict=False
                     )
-                    print(f"[SAGD] Loaded {len(new_state_dict)} weights. Missing: {len(missing)}", flush=True)
+                    print(f"[SAGD] Successfully loaded {len(new_state_dict)} pretrained weights into network! Missing: {len(missing)}", flush=True)
                     break
 
     def _build_loss(self):
-        """Build SAGD combined loss."""
+        """Build SAGD combined loss and validation loss."""
         self.sadg_loss = SAGDLoss(self.sadg_cfg)
+        # Cache validation loss function (was being re-instantiated every val step)
+        self.val_loss_fn = DiceCELoss(
+            num_classes=self.sadg_cfg.model.num_classes,
+            dice_weight=self.sadg_cfg.losses.seg.dice_weight,
+            ce_weight=self.sadg_cfg.losses.seg.ce_weight,
+        )
         return self.sadg_loss
 
     def set_deep_supervision_enabled(self, enabled: bool):
         pass
 
     def get_dataloaders(self):
-        """Build multi-domain DataLoaders dynamically managed by nnUNet configuration_manager (batch_size=24, 8/domain)."""
+        """Build multi-domain DataLoaders dynamically managed by nnUNet configuration_manager."""
         batch_size = self.configuration_manager.batch_size
-        print(f"[SAGD] Building multi-domain DataLoaders (batch_size={batch_size}, 8 samples/domain, num_iterations={self.num_iterations_per_epoch})...", flush=True)
+        num_domains = getattr(self.sadg_cfg.model.hdm, 'num_domains', 3)
+        samples_per_domain = max(batch_size // num_domains, 1)
+        print(f"[SAGD] Building multi-domain DataLoaders (batch_size={batch_size}, {samples_per_domain} samples/domain, num_iterations={self.num_iterations_per_epoch})...", flush=True)
 
         loaders = get_multi_domain_dataloaders(
             self.sadg_cfg,
@@ -450,14 +490,20 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         self.optimizer.zero_grad(set_to_none=True)
 
         # Clear SAS cache at start of each epoch (handled by iteration count)
-        if hasattr(self.network, 'sas') and self.network.sas is not None:
+        sas_module = getattr(self.network, 'sas', None)
+        if sas_module is None and hasattr(self.network, 'backbone'):
+            sas_module = getattr(self.network.backbone, 'sas', None)
+        if sas_module is None and hasattr(self.network, 'module'):
+            sas_module = getattr(self.network.module.backbone, 'sas', None)
+
+        if sas_module is not None:
             if hasattr(self, '_iter_count'):
                 self._iter_count += 1
             else:
                 self._iter_count = 0
 
             if self._iter_count % self.num_iterations_per_epoch == 0:
-                self.network.sas.clear_cache()
+                sas_module.clear_cache()
 
         # Multi-domain forward via self.network(batch) (ensures DDP registers NCCL autograd hooks)
         output = self.network(batch)
@@ -482,15 +528,24 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
 
         l = loss_dict['total']
 
+        # Safe step-skip on NaN/Inf: DO NOT use nan_to_num to mask bad loss,
+        # as corrupted gradients from fake loss values destroy all network weights.
+        # This was the root cause of Epoch 201 NaN collapse (train_loss stuck at 0.5).
+        if torch.isnan(l) or torch.isinf(l):
+            self.optimizer.zero_grad(set_to_none=True)
+            print(f"[SAGD WARNING] NaN/Inf loss detected at step, skipping backward", flush=True)
+            return {'loss': 0.0}
+
+        grad_clip = getattr(self.sadg_cfg.training, 'grad_clip', 12.0)
         if self.grad_scaler is not None:
             self.grad_scaler.scale(l).backward()
             self.grad_scaler.unscale_(self.optimizer)
-            torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
+            torch.nn.utils.clip_grad_norm_(self.network.parameters(), grad_clip)
             self.grad_scaler.step(self.optimizer)
             self.grad_scaler.update()
         else:
             l.backward()
-            torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
+            torch.nn.utils.clip_grad_norm_(self.network.parameters(), grad_clip)
             self.optimizer.step()
 
         return {'loss': l.detach().cpu().numpy().item()}
@@ -502,32 +557,20 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         target_squeezed = target.squeeze(1).long()
 
         with torch.no_grad():
-            if hasattr(self.network, 'module'):
-                output = self.network.module(data, labels=target_squeezed)
-            else:
-                output = self.network(data, labels=target_squeezed)
+            output = self.network(data, labels=target_squeezed)
 
             if isinstance(output, dict):
                 seg_logits = output['seg_logits']
             else:
                 seg_logits = output
 
-            # Compute segmentation loss only for validation
-            from losses.sadg_loss import DiceCELoss
-            val_loss_fn = DiceCELoss(num_classes=seg_logits.shape[1])
-            l = val_loss_fn(seg_logits, target_squeezed)
+            # Compute segmentation loss only for validation (using cached loss fn)
+            l = self.val_loss_fn(seg_logits, target_squeezed)
 
+            num_cls = seg_logits.shape[1]
             axes = [0] + list(range(2, seg_logits.ndim))
-            output_seg = seg_logits.argmax(1)[:, None]
-            predicted_onehot = torch.zeros(
-                seg_logits.shape, device=seg_logits.device, dtype=torch.float16
-            )
-            predicted_onehot.scatter_(1, output_seg, 1)
-
-            target_onehot = torch.zeros(
-                seg_logits.shape, device=seg_logits.device, dtype=torch.float16
-            )
-            target_onehot.scatter_(1, target, 1)
+            predicted_onehot = F.one_hot(seg_logits.argmax(1), num_cls).permute(0, 3, 1, 2).float()
+            target_onehot = F.one_hot(target.squeeze(1).long().clamp(min=0, max=3), num_cls).permute(0, 3, 1, 2).float()
 
             tp, fp, fn, _ = get_tp_fp_fn_tn(predicted_onehot, target_onehot, axes=axes, mask=None)
 
@@ -541,11 +584,64 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             )
 
         return {
-            'loss': l.detach().cpu().numpy().item(),
+            'loss': l.detach().cpu().numpy(),
             'tp_hard': tp_hard,
             'fp_hard': fp_hard,
             'fn_hard': fn_hard,
             'mean_dice': dice_dict['Mean_Dice'],
+        }
+
+    def on_validation_epoch_end(self, val_outputs: list):
+        """DDP-safe validation epoch aggregation for multi-class dice logging."""
+        outputs_collated = collate_outputs(val_outputs)
+        tp = np.sum(outputs_collated['tp_hard'], 0)
+        fp = np.sum(outputs_collated['fp_hard'], 0)
+        fn = np.sum(outputs_collated['fn_hard'], 0)
+        loss_val_local = np.mean(outputs_collated['loss'])
+
+        if self.is_ddp and torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+
+            tps = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(tps, tp)
+            tp = np.sum(tps, axis=0)
+
+            fps = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(fps, fp)
+            fp = np.sum(fps, axis=0)
+
+            fns = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(fns, fn)
+            fn = np.sum(fns, axis=0)
+
+            losses_val = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(losses_val, loss_val_local)
+            loss_here = np.mean(losses_val)
+        else:
+            loss_here = loss_val_local
+
+        global_dc_per_class = [2 * i / (2 * i + j + k + 1e-8) for i, j, k in zip(tp, fp, fn)]
+        iou_per_class = [i / (i + j + k + 1e-8) for i, j, k in zip(tp, fp, fn)]
+        precision_per_class = [i / (i + j + 1e-8) for i, j in zip(tp, fp)]
+        recall_per_class = [i / (i + k + 1e-8) for i, k in zip(tp, fn)]
+
+        mean_fg_dice = float(np.nanmean(global_dc_per_class))
+        mean_iou = float(np.nanmean(iou_per_class))
+        mean_precision = float(np.nanmean(precision_per_class))
+        mean_recall = float(np.nanmean(recall_per_class))
+
+        self.logger.log('mean_fg_dice', mean_fg_dice, self.current_epoch)
+        self.logger.log('dice_per_class_or_region', global_dc_per_class, self.current_epoch)
+        self.logger.log('val_losses', float(loss_here), self.current_epoch)
+
+        # Cache extended metrics in trainer for WandB logging
+        self._latest_eval_metrics = {
+            'iou_per_class': iou_per_class,
+            'precision_per_class': precision_per_class,
+            'recall_per_class': recall_per_class,
+            'mean_iou': mean_iou,
+            'mean_precision': mean_precision,
+            'mean_recall': mean_recall,
         }
 
     def on_train_start(self):
@@ -560,10 +656,12 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
 
         if self.local_rank == 0 and HAS_WANDB:
             run_name = f"SAGD_Vivim_fold{self.fold}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            print(f"[SAGD] WandB run: {run_name}", flush=True)
+            wandb_mode = os.environ.get('WANDB_MODE', 'online')
+            print(f"[SAGD] WandB run: {run_name} (mode={wandb_mode})", flush=True)
             wandb.init(
                 project="sagd-eyeball",
                 name=run_name,
+                mode=wandb_mode,
                 config={
                     "trainer": self.__class__.__name__,
                     "fold": self.fold,
@@ -583,15 +681,51 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         if self.local_rank == 0 and HAS_WANDB:
             try:
                 epoch_idx = self.current_epoch - 1
-                train_loss = self.logger.get_value('train_losses', step=-1)
-                val_loss = self.logger.get_value('val_losses', step=-1)
-                mean_fg_dice = self.logger.get_value('mean_fg_dice', step=-1)
+                train_losses = self.logger.get_value('train_losses', step=None)
+                val_losses = self.logger.get_value('val_losses', step=None)
+                raw_dice = self.logger.get_value('dice_per_class_or_region', step=None)
+                mean_fg_list = self.logger.get_value('mean_fg_dice', step=None)
+
+                train_loss = train_losses[-1] if isinstance(train_losses, list) and len(train_losses) > 0 else 0.0
+                val_loss = val_losses[-1] if isinstance(val_losses, list) and len(val_losses) > 0 else 0.0
+                pseudo_dice = raw_dice[-1] if isinstance(raw_dice, list) and len(raw_dice) > 0 else [0.0, 0.0, 0.0]
+
+                pupil_dice = float(pseudo_dice[0]) if isinstance(pseudo_dice, (list, np.ndarray)) and len(pseudo_dice) > 0 else 0.0
+                iris_dice = float(pseudo_dice[1]) if isinstance(pseudo_dice, (list, np.ndarray)) and len(pseudo_dice) > 1 else 0.0
+                sclera_dice = float(pseudo_dice[2]) if isinstance(pseudo_dice, (list, np.ndarray)) and len(pseudo_dice) > 2 else 0.0
+                mean_fg_dice = mean_fg_list[-1] if isinstance(mean_fg_list, list) and len(mean_fg_list) > 0 else (pupil_dice + iris_dice + sclera_dice) / 3.0
+
+                ext = getattr(self, '_latest_eval_metrics', {})
+                iou = ext.get('iou_per_class', [0.0, 0.0, 0.0])
+                prec = ext.get('precision_per_class', [0.0, 0.0, 0.0])
+                rec = ext.get('recall_per_class', [0.0, 0.0, 0.0])
+
+                print(f"[SAGD Detailed Metrics] Epoch {epoch_idx} -> train_loss: {train_loss:.4f}, val_loss: {val_loss:.4f} | "
+                      f"Dice: [Pupil: {pupil_dice:.4f}, Iris: {iris_dice:.4f}, Sclera: {sclera_dice:.4f}, Mean: {mean_fg_dice:.4f}] | "
+                      f"IoU: [Pupil: {iou[0]:.4f}, Iris: {iou[1]:.4f}, Sclera: {iou[2]:.4f}, mIoU: {ext.get('mean_iou', 0.0):.4f}] | "
+                      f"Precision: [Pupil: {prec[0]:.4f}, Iris: {prec[1]:.4f}, Sclera: {prec[2]:.4f}, Mean: {ext.get('mean_precision', 0.0):.4f}] | "
+                      f"Recall: [Pupil: {rec[0]:.4f}, Iris: {rec[1]:.4f}, Sclera: {rec[2]:.4f}, Mean: {ext.get('mean_recall', 0.0):.4f}]", flush=True)
 
                 wandb.log({
                     "epoch": epoch_idx,
                     "train_loss": train_loss,
                     "val_loss": val_loss,
+                    "pupil_dice": pupil_dice,
+                    "iris_dice": iris_dice,
+                    "sclera_dice": sclera_dice,
                     "mean_fg_dice": mean_fg_dice,
+                    "pupil_iou": float(iou[0]),
+                    "iris_iou": float(iou[1]),
+                    "sclera_iou": float(iou[2]),
+                    "mean_iou": float(ext.get('mean_iou', 0.0)),
+                    "pupil_precision": float(prec[0]),
+                    "iris_precision": float(prec[1]),
+                    "sclera_precision": float(prec[2]),
+                    "mean_precision": float(ext.get('mean_precision', 0.0)),
+                    "pupil_recall": float(rec[0]),
+                    "iris_recall": float(rec[1]),
+                    "sclera_recall": float(rec[2]),
+                    "mean_recall": float(ext.get('mean_recall', 0.0)),
                     "learning_rate": self.lr_scheduler.get_last_lr()[0],
                 })
             except Exception as e:
@@ -611,8 +745,23 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
         enable_deep_supervision: bool = False,
     ) -> nn.Module:
         """Build Vivim + SAGD network dynamically managed by nnUNet ConfigurationManager."""
-        config_path = os.path.join(PROJECT_ROOT, 'configs', 'sadg_vivim.yaml')
-        cfg = load_config(config_path)
+        config_path_candidates = [
+            os.path.join(
+                os.environ.get('NNUNET_PROJECT_ROOT', ''),
+                'configs', 'sadg_vivim.yaml'
+            ),
+            os.path.join(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..')),
+                'configs', 'sadg_vivim.yaml'
+            ),
+        ]
+        cfg = None
+        for cp in config_path_candidates:
+            if os.path.exists(cp):
+                cfg = load_config(cp)
+                break
+        if cfg is None:
+            raise FileNotFoundError(f"Cannot find sadg_vivim.yaml in: {config_path_candidates}")
 
         arch_info = configuration_manager.configuration.get('architecture', {})
         print(f"[SAGD] Building Vivim + SAS + HDM + SGA network from nnUNet ConfigurationManager (num_classes={num_output_channels}, patch_size={configuration_manager.patch_size}, batch_size={configuration_manager.batch_size})!", flush=True)

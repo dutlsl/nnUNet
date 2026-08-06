@@ -198,23 +198,22 @@ class GCS2D(nn.Module):
         d_inv_sqrt = torch.diag_embed(1.0 / (torch.sqrt(degree) + 1e-8))
         laplacian_norm = torch.bmm(d_inv_sqrt, torch.bmm(laplacian, d_inv_sqrt))
 
-        # Eigendecomposition — use Fiedler vector (2nd smallest eigenvector)
-        # For N=576, this is computationally tractable
+        # Ensure laplacian_norm has no NaNs or Infs
+        laplacian_norm = torch.nan_to_num(laplacian_norm, nan=0.0, posinf=1.0, neginf=-1.0)
         laplacian_norm = (laplacian_norm + laplacian_norm.transpose(1, 2)) / 2.0
+        
+        # Add diagonal jitter for numerical stability (use actual N, not self.num_tokens)
+        N = laplacian_norm.shape[1]
+        eye = torch.eye(N, device=device).unsqueeze(0)
+        laplacian_norm = laplacian_norm + 1e-5 * eye
+
         try:
             eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_norm)
-        except RuntimeError:
-            # Fallback: add small diagonal perturbation for numerical stability
-            laplacian_norm = laplacian_norm + 1e-6 * torch.eye(
-                self.num_tokens, device=device
-            ).unsqueeze(0)
-            eigenvalues, eigenvectors = torch.linalg.eigh(laplacian_norm)
-
-        # Fiedler vector = 2nd eigenvector (index 1, since index 0 is constant)
-        fiedler = eigenvectors[:, :, 1]  # [B, N]
-
-        # Sort by Fiedler vector value -> graph-cut-aware serialization
-        order = torch.argsort(fiedler, dim=-1)  # [B, N]
+            fiedler = eigenvectors[:, :, 1]  # [B, N]
+            order = torch.argsort(fiedler, dim=-1)  # [B, N]
+        except Exception as e:
+            # Fallback to standard raster order on numerical failure
+            order = torch.arange(N, device=device).unsqueeze(0).expand(B, -1)
 
         return order
 
@@ -245,7 +244,7 @@ class StructureAwareSerializer(nn.Module):
         )
 
         self.num_tokens = feature_h * feature_w
-        self.cache_serialization = sas_cfg.cache_serialization
+        self.cache_serialization = False
         self._cached_cds_order = None
         self._cached_gcs_order = None
 
@@ -284,9 +283,21 @@ class StructureAwareSerializer(nn.Module):
         # Flatten spatial dims: [B, C, N] -> [B, N, C]
         tokens = features.reshape(B, C, N).permute(0, 2, 1)  # [B, N, C]
 
-        # Compute serialization orders
-        cds_order = self.cds(features)  # [B, N]
-        gcs_order = self.gcs(features)  # [B, N]
+        # Compute serialization orders (use cached orders if available to prevent CPU/GPU memory leaks)
+        if self.cache_serialization and self._cached_cds_order is not None and self._cached_gcs_order is not None:
+            if self._cached_cds_order.shape[0] == B:
+                cds_order = self._cached_cds_order
+                gcs_order = self._cached_gcs_order
+            else:
+                cds_order = self.cds(features)
+                gcs_order = self.gcs(features)
+        else:
+            cds_order = self.cds(features)
+            gcs_order = self.gcs(features)
+            if self.cache_serialization:
+                self._cached_cds_order = cds_order.detach()
+                self._cached_gcs_order = gcs_order.detach()
+
         inv_cds_order = cds_order.argsort(dim=-1)  # [B, N] for 2D unscrambling
 
         # Gather tokens in serialized order

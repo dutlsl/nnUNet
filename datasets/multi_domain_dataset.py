@@ -321,12 +321,17 @@ class LPWDomainDataset(Dataset):
         temporal_window: int = 3,
         preprocessor: Optional[RITnetPreprocessor] = None,
         skip_missing_labels: bool = True,
+        extracted_video_root: Optional[str] = None,
+        extracted_label_root: Optional[str] = None,
     ):
         super().__init__()
         self.temporal_window = temporal_window
         self.preprocessor = preprocessor or RITnetPreprocessor()
         self.domain_id = 2
         self.skip_missing_labels = skip_missing_labels
+        self.video_root = video_root
+        self.extracted_video_root = extracted_video_root
+        self.extracted_label_root = extracted_label_root
 
         os.makedirs(CACHE_DIR, exist_ok=True)
         cache_path = os.path.join(CACHE_DIR, f"lpw_T{temporal_window}.pkl")
@@ -392,26 +397,27 @@ class LPWDomainDataset(Dataset):
     ) -> List[np.ndarray]:
         """Read `count` consecutive frames ending at target_frame."""
         # Try PNG extracted first (100x faster than video seek decoding)
-        try:
-            rel = os.path.relpath(video_path, "/home/iulab1/PycharmProjects/transUnet/LPW")
-            folder_id, fname = os.path.split(rel)
-            file_id = os.path.splitext(fname)[0]
-            png_dir = os.path.join("/home/iulab1/PycharmProjects/transUnet/LPW_extracted", folder_id, file_id)
+        if self.extracted_video_root:
+            try:
+                rel = os.path.relpath(video_path, self.video_root)
+                folder_id, fname = os.path.split(rel)
+                file_id = os.path.splitext(fname)[0]
+                png_dir = os.path.join(self.extracted_video_root, folder_id, file_id)
 
-            start = max(0, target_frame - count + 1)
-            frames = []
-            if os.path.isdir(png_dir):
-                for idx in range(start, target_frame + 1):
-                    png_path = os.path.join(png_dir, f"{idx:06d}.png")
-                    if os.path.exists(png_path):
-                        gray = cv2.imread(png_path, cv2.IMREAD_GRAYSCALE)
-                        if gray is not None:
-                            frames.append(gray)
+                start = max(0, target_frame - count + 1)
+                frames = []
+                if os.path.isdir(png_dir):
+                    for idx in range(start, target_frame + 1):
+                        png_path = os.path.join(png_dir, f"{idx:06d}.png")
+                        if os.path.exists(png_path):
+                            gray = cv2.imread(png_path, cv2.IMREAD_GRAYSCALE)
+                            if gray is not None:
+                                frames.append(gray)
 
-            if len(frames) == count:
-                return frames
-        except Exception:
-            pass
+                if len(frames) == count:
+                    return frames
+            except Exception:
+                pass
 
         # Fallback to VideoCapture if PNGs not extracted yet
         cap = cv2.VideoCapture(video_path)
@@ -442,32 +448,33 @@ class LPWDomainDataset(Dataset):
         target_size = self.preprocessor.target_size
 
         # Try PNG extracted first
-        try:
-            pupil_prefix = os.path.splitext(os.path.basename(pupil_path))[0]
-            eyelid_prefix = os.path.splitext(os.path.basename(eyelid_path))[0]
-            pupil_png = os.path.join("/home/iulab1/PycharmProjects/nnUNet/Pupils_in_the_wild_extracted", pupil_prefix, f"{frame_idx:06d}.png")
-            eyelid_png = os.path.join("/home/iulab1/PycharmProjects/nnUNet/Pupils_in_the_wild_extracted", eyelid_prefix, f"{frame_idx:06d}.png")
+        if self.extracted_label_root:
+            try:
+                pupil_prefix = os.path.splitext(os.path.basename(pupil_path))[0]
+                eyelid_prefix = os.path.splitext(os.path.basename(eyelid_path))[0]
+                pupil_png = os.path.join(self.extracted_label_root, pupil_prefix, f"{frame_idx:06d}.png")
+                eyelid_png = os.path.join(self.extracted_label_root, eyelid_prefix, f"{frame_idx:06d}.png")
 
-            if os.path.exists(pupil_png) and os.path.exists(eyelid_png):
-                pupil_gray = cv2.imread(pupil_png, cv2.IMREAD_GRAYSCALE)
-                eyelid_gray = cv2.imread(eyelid_png, cv2.IMREAD_GRAYSCALE)
+                if os.path.exists(pupil_png) and os.path.exists(eyelid_png):
+                    pupil_gray = cv2.imread(pupil_png, cv2.IMREAD_GRAYSCALE)
+                    eyelid_gray = cv2.imread(eyelid_png, cv2.IMREAD_GRAYSCALE)
 
-                mask = np.zeros(target_size, dtype=np.int64)
+                    mask = np.zeros(target_size, dtype=np.int64)
 
-                if pupil_gray is not None:
-                    if pupil_gray.shape[:2] != target_size:
-                        pupil_gray = cv2.resize(pupil_gray, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
-                    mask[pupil_gray > 128] = 3
+                    if pupil_gray is not None:
+                        if pupil_gray.shape[:2] != target_size:
+                            pupil_gray = cv2.resize(pupil_gray, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
+                        mask[pupil_gray > 128] = 3
 
-                if eyelid_gray is not None:
-                    if eyelid_gray.shape[:2] != target_size:
-                        eyelid_gray = cv2.resize(eyelid_gray, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
-                    eyelid_region = (eyelid_gray > 128) & (mask != 3)
-                    mask[eyelid_region] = 2
+                    if eyelid_gray is not None:
+                        if eyelid_gray.shape[:2] != target_size:
+                            eyelid_gray = cv2.resize(eyelid_gray, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
+                        eyelid_region = (eyelid_gray > 128) & (mask != 3)
+                        mask[eyelid_region] = 2
 
-                return mask
-        except Exception:
-            pass
+                    return mask
+            except Exception:
+                pass
 
         # Fallback to VideoCapture
         cap_pupil = cv2.VideoCapture(pupil_path)
@@ -560,7 +567,12 @@ class MultiDomainDataset(Dataset):
 class MultiDomainBatchSampler:
     """
     Yields batches where each domain has exactly `samples_per_domain` items per step.
-    Guarantees B_min is constant (e.g., 2) across all domains, eliminating wasted sample loading.
+    Guarantees B_min is constant (e.g., 2) across all domains.
+
+    CRITICAL: Uses SEQUENTIAL cursor per domain (not random sampling).
+    Each epoch, the full index range is shuffled once, then iterated sequentially.
+    This preserves temporal locality within each OpenEDS/Swirski/LPW sequence
+    window, which is essential for Vivim+Mamba's sequential state modeling.
     """
     def __init__(self, datasets: List[Dataset], samples_per_domain: int = 2, num_iterations: int = 250):
         self.datasets = datasets
@@ -568,12 +580,35 @@ class MultiDomainBatchSampler:
         self.num_iterations = num_iterations
 
     def __iter__(self):
+        # Create epoch-level permuted index arrays per domain.
+        # Permutation randomizes WHICH temporal windows appear, but iteration
+        # order within a batch is sequential (consecutive cursor positions).
+        domain_indices = []
+        for ds in self.datasets:
+            n = len(ds)
+            if n == 0:
+                domain_indices.append(np.array([], dtype=np.int64))
+            else:
+                perm = np.random.permutation(n)
+                # Tile to ensure enough indices for all iterations
+                needed = self.num_iterations * self.samples_per_domain
+                if needed > n:
+                    perm = np.tile(perm, (needed // n) + 1)
+                domain_indices.append(perm)
+
+        # Sequential cursors per domain
+        cursors = [0] * len(self.datasets)
+
         for _ in range(self.num_iterations):
             batch_indices = []
             for domain_id, ds in enumerate(self.datasets):
-                indices = np.random.choice(len(ds), size=self.samples_per_domain, replace=True)
-                for idx in indices:
+                n = len(ds)
+                if n == 0:
+                    continue
+                for _ in range(self.samples_per_domain):
+                    idx = int(domain_indices[domain_id][cursors[domain_id]])
                     batch_indices.append((domain_id, idx))
+                    cursors[domain_id] += 1
             yield batch_indices
 
     def __len__(self):
@@ -635,11 +670,14 @@ def get_multi_domain_dataloaders(
         temporal_window=temporal_window,
         preprocessor=preprocessor,
         skip_missing_labels=lpw_cfg.skip_missing_labels,
+        extracted_video_root=getattr(lpw_cfg, 'extracted_video_root', None),
+        extracted_label_root=getattr(lpw_cfg, 'extracted_label_root', None),
     )
 
     domain_list = [openeds_train, swirski_ds, lpw_ds]
     multi_ds = MultiDomainDataset(domain_list)
-    samples_per_domain = max(2, batch_size // 3)
+    num_domains = len(domain_list)
+    samples_per_domain = max(1, batch_size // num_domains)
     num_workers = getattr(cfg.training, 'num_workers', 0)
 
     batch_sampler = MultiDomainBatchSampler(

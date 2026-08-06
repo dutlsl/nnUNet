@@ -1,6 +1,10 @@
 # ==============================================================================
 # SAGD (Structure-Aware Domain Generalization) Configuration
 # Applied on top of Vivim+Mamba3 backbone for eyeball segmentation
+#
+# All paths use ${PROJECT_ROOT} placeholder, resolved at runtime by:
+#   1. Environment variable NNUNET_PROJECT_ROOT
+#   2. Auto-detection from config file location (../configs -> project root)
 # ==============================================================================
 
 experiment:
@@ -65,35 +69,39 @@ data:
 
   # Domain 1: OpenEDS 2019 (primary, sequential video dataset T=3, 4-class labels)
   openeds:
-    sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
-    pseudo_label_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_400
+    sequence_root: ${PROJECT_ROOT}/Openedsdata2019/Sequence_Extracted
+    pseudo_label_root: ${PROJECT_ROOT}/Openedsdata2019/Sequence_PseudoLabels_400
     original_crop: [120, 520, 0, 400]    # Original 640x400 -> 400x400 crop
     num_classes: 4
 
   # Domain 2: Swirski (pupil ellipse -> binary mask)
   swirski:
-    root: /home/iulab1/PycharmProjects/transUnet/Swirski_Dataset
+    root: ${PROJECT_ROOT}/../transUnet/Swirski_Dataset
     subsets: [p1-left, p1-right, p2-left, p2-right]
     label_type: ellipse  # pupil-ellipses.txt -> binary mask conversion
 
   # Domain 3: LPW (segment label videos)
   lpw:
-    video_root: /home/iulab1/PycharmProjects/transUnet/LPW
-    segment_label_root: /home/iulab1/PycharmProjects/nnUNet/Pupils in the wild improved
+    video_root: ${PROJECT_ROOT}/../transUnet/LPW
+    segment_label_root: ${PROJECT_ROOT}/Pupils in the wild improved
+    extracted_video_root: ${PROJECT_ROOT}/../transUnet/LPW_extracted
+    extracted_label_root: ${PROJECT_ROOT}/Pupils_in_the_wild_extracted
     label_type: video_mask  # _pupil.mp4 + _eyelid.mp4 -> binary mask
     skip_missing_labels: true
 
 training:
-  batch_size: 36
+  batch_size: 18
   num_workers: 0
   gpu_ids: [0, 1]
+  grad_clip: 12.0
+  pretrained_checkpoint: null  # Set to path like ${PROJECT_ROOT}/nnUNet_results/.../checkpoint_best.pth
 
 losses:
   seg:
     type: dice_ce
     weight: 1.0
-    dice_weight: 0.5
-    ce_weight: 0.5
+    dice_weight: 1.0
+    ce_weight: 0.3
   domain_consistency:
     weight: 0.1
     temperature: 1.0

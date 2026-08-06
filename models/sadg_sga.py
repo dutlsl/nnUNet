@@ -224,8 +224,8 @@ class SpectralGraphAlignment(nn.Module):
         Returns:
             aligned_features: [B, N, C] spectrally aligned features
         """
-        if self.training:
-            # Training: only update prototypes, pass features through
+        if self.training or not getattr(self, 'enable_test_alignment', False) or not self.prototype_bank.prototype_initialized.all():
+            # Training, disabled test alignment, or uninitialized prototype bank: pass features through safely
             if labels is not None:
                 self.prototype_bank.update(
                     features.detach(),

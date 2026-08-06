@@ -14,7 +14,7 @@ from typing import Dict, Optional
 
 
 class DiceLoss(nn.Module):
-    """Soft Dice Loss for multi-class foreground segmentation (excludes background channel 0)."""
+    """Soft Dice Loss for multi-class foreground segmentation with partial annotation support."""
 
     def __init__(self, num_classes: int = 4, smooth: float = 1e-5):
         super().__init__()
@@ -22,11 +22,9 @@ class DiceLoss(nn.Module):
         self.smooth = smooth
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            pred: [B, C, H, W] raw logits
-            target: [B, H, W] integer class labels
-        """
+        if target.ndim == 4:
+            target = target.squeeze(1)
+        target = target.long().clamp(min=0, max=3)
         pred_soft = F.softmax(pred, dim=1)
         target_onehot = F.one_hot(target, self.num_classes).permute(0, 3, 1, 2).float()
 
@@ -34,29 +32,38 @@ class DiceLoss(nn.Module):
         union = pred_soft.sum(dim=(2, 3)) + target_onehot.sum(dim=(2, 3))
 
         dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
-        # Exclude background channel 0, average across foreground classes (Pupil, Iris, Sclera)
-        return 1.0 - dice[:, 1:].mean()
+        
+        # Mask out classes that are not present in the ground truth for each sample
+        cls_present = (target_onehot.sum(dim=(2, 3)) > 0)[:, 1:]  # [B, num_classes - 1]
+        fg_dice = dice[:, 1:]
+        
+        loss_per_cls = torch.where(cls_present, 1.0 - fg_dice, torch.tensor(0.0, device=pred.device))
+        num_present = cls_present.float().sum()
+        if num_present > 0:
+            return loss_per_cls.sum() / num_present
+        return 1.0 - fg_dice.mean()
 
 
 class DiceCELoss(nn.Module):
-    """Combined Dice + Weighted CrossEntropy loss for foreground-balanced segmentation."""
+    """Standard Dice + CrossEntropy loss for multi-class segmentation."""
 
     def __init__(
         self,
         num_classes: int = 4,
-        dice_weight: float = 0.5,
-        ce_weight: float = 0.5,
+        dice_weight: float = 1.0,
+        ce_weight: float = 0.3,
     ):
         super().__init__()
         self.dice = DiceLoss(num_classes=num_classes)
-        # Class weights: Background 0.1, Pupil 1.0, Iris 3.0, Sclera 3.0
-        self.register_buffer('class_weights', torch.tensor([0.1, 1.0, 3.0, 3.0]))
         self.dice_weight = dice_weight
         self.ce_weight = ce_weight
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if target.ndim == 4:
+            target = target.squeeze(1)
+        target = target.long().clamp(min=0, max=3)
         loss_dice = self.dice(pred, target)
-        loss_ce = F.cross_entropy(pred, target, weight=self.class_weights.to(pred.device))
+        loss_ce = F.cross_entropy(pred, target)
         return self.dice_weight * loss_dice + self.ce_weight * loss_ce
 
 
@@ -90,8 +97,8 @@ class DomainConsistencyLoss(nn.Module):
         if not auxiliary_logits_list:
             return torch.tensor(0.0, device=primary_logits.device)
 
-        # Soft predictions from primary domain
-        primary_soft = F.softmax(primary_logits / self.temperature, dim=1)
+        # FP32 forced: AMP FP16 min representable ~6e-5, so 1e-8 underflows to 0 → log(0) = -inf
+        primary_soft = F.softmax((primary_logits / self.temperature).float(), dim=1)
 
         total_loss = torch.tensor(0.0, device=primary_logits.device)
         count = 0
@@ -109,7 +116,8 @@ class DomainConsistencyLoss(nn.Module):
                     align_corners=False,
                 )
 
-            aux_soft = F.softmax(aux_logits / self.temperature, dim=1)
+            # FP32 forced for safe log computation
+            aux_soft = F.softmax((aux_logits / self.temperature).float(), dim=1)
 
             # Use minimum batch size
             B_min = min(primary_soft.shape[0], aux_soft.shape[0])
@@ -117,11 +125,12 @@ class DomainConsistencyLoss(nn.Module):
             a_soft = aux_soft[:B_min]
 
             # KL divergence (symmetric, averaged per pixel across channels)
+            # clamp(min=1e-6) prevents log(0) even in FP32 edge cases
             kl_pa = F.kl_div(
-                torch.log(p_soft + 1e-8), a_soft, reduction='none'
+                torch.log(p_soft.clamp(min=1e-6)), a_soft, reduction='none'
             ).sum(dim=1).mean()
             kl_ap = F.kl_div(
-                torch.log(a_soft + 1e-8), p_soft, reduction='none'
+                torch.log(a_soft.clamp(min=1e-6)), p_soft, reduction='none'
             ).sum(dim=1).mean()
 
             total_loss = total_loss + (kl_pa + kl_ap) / 2.0
@@ -164,9 +173,9 @@ class StructuralContrastiveLoss(nn.Module):
         primary_tokens = primary_tokens[:B_min]
         auxiliary_tokens = auxiliary_tokens[:B_min]
 
-        # Normalize features
-        p_norm = F.normalize(primary_tokens, dim=-1)  # [B, N, C]
-        a_norm = F.normalize(auxiliary_tokens, dim=-1)  # [B, N, C]
+        # FP32 forced: AMP FP16 with /temperature(0.07) causes overflow beyond FP16 max(65504)
+        p_norm = F.normalize(primary_tokens.float(), dim=-1)  # [B, N, C]
+        a_norm = F.normalize(auxiliary_tokens.float(), dim=-1)  # [B, N, C]
 
         # Sample anchor positions
         num_samples = min(self.num_negatives, N)
@@ -174,8 +183,11 @@ class StructuralContrastiveLoss(nn.Module):
 
         anchors = p_norm[:, indices, :]  # [B_min, num_samples, C]
 
-        # Compute full similarity matrix between sampled anchors and all auxiliary tokens
-        sim_matrix = torch.bmm(anchors, a_norm.transpose(1, 2)) / self.temperature  # [B_min, num_samples, N]
+        # Compute cosine similarity, clamp to valid range BEFORE dividing by temperature
+        # This prevents FP16 overflow: cosine ∈ [-1, 1], so max after /0.07 ≈ 14.3 (safe)
+        sim_matrix = torch.bmm(anchors, a_norm.transpose(1, 2))  # [B_min, num_samples, N]
+        sim_matrix = torch.clamp(sim_matrix, min=-1.0, max=1.0)
+        sim_matrix = sim_matrix / self.temperature
 
         # Target for anchor i is exact token position indices[i]
         labels = indices.unsqueeze(0).expand(B_min, -1)  # [B_min, num_samples]

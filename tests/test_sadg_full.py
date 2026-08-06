@@ -51,9 +51,10 @@ def test_sas():
 
     sas = StructureAwareSerializer(cfg)
     feat = torch.randn(2, 256, 6, 6)
-    fwd_cds, rev_cds, fwd_gcs, rev_gcs = sas(feat)
-    print(f"  fwd_cds: {fwd_cds.shape}, rev_gcs: {rev_gcs.shape}")
+    fwd_cds, rev_cds, fwd_gcs, rev_gcs, inv_cds_order = sas(feat)
+    print(f"  fwd_cds: {fwd_cds.shape}, rev_gcs: {rev_gcs.shape}, inv_cds_order: {inv_cds_order.shape}")
     assert fwd_cds.shape == (2, 36, 256)
+    assert inv_cds_order.shape == (2, 36)
     print("  ✓ SAS passed")
 
 def test_ism():
@@ -196,7 +197,10 @@ def test_backbone_domain_forward():
     print(f"  serialized_tokens: {out['serialized_tokens'].shape}")
     print(f"  spatial_shape: {out['spatial_shape']}")
 
-    seg = backbone.decode_from_tokens(out['serialized_tokens'], out['skips'], out['spatial_shape'])
+    seg = backbone.decode_from_tokens(
+        out['serialized_tokens'], out['skips'], out['spatial_shape'],
+        inv_cds_order=out['inv_cds_order']
+    )
     print(f"  decoded seg_logits: {seg.shape}")
     assert seg.shape == (1, 4, 192, 192)
     print("  ✓ Domain forward + decode passed")
