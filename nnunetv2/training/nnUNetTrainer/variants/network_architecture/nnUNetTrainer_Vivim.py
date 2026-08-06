@@ -6,8 +6,9 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 import wandb
 
-# Ensure project root is in sys.path
-sys.path.insert(0, '/home/iulab0/PycharmProjects/nnUNet')
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', '..'))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
