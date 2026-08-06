@@ -91,19 +91,21 @@ data:
 
 training:
   batch_size: 18
-  num_workers: 0
+  num_workers: 4
   gpu_ids: [0, 1]
   grad_clip: 12.0
   pretrained_checkpoint: null  # Set to path like ${PROJECT_ROOT}/nnUNet_results/.../checkpoint_best.pth
 
 losses:
+  warmup_epochs: 20  # SADG aux losses ramp 0→1 over 20 epochs (DiceCE converges first)
   seg:
     type: dice_ce
     weight: 1.0
     dice_weight: 1.0
     ce_weight: 0.3
+    class_weights: [0.1, 1.0, 1.0, 1.0]  # suppress background gradient dominance
   domain_consistency:
-    weight: 0.1
+    weight: 0.1  # Token-level MMD (feature alignment only, NO labels from aux domains)
     temperature: 1.0
   structural_contrastive:
     weight: 0.05

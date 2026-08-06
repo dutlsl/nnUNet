@@ -193,23 +193,11 @@ class VivimSAGDWrapper(nn.Module):
         else:
             raise ValueError("Primary domain (0) not in domain_batches")
 
-        # Auxiliary domains: decode auxiliary ISM outputs into seg logits
-        # for DomainConsistencyLoss (KL divergence between primary and auxiliary predictions)
-        aux_seg_list = []
-        for d_id in sorted(domain_batches.keys()):
-            if d_id == 0:
-                continue
-            if d_id in domain_outputs:
-                aux_out = domain_outputs[d_id]
-                aux_tokens = aux_out.get('serialized_tokens', None)
-                if aux_tokens is not None:
-                    aux_seg = self.backbone.decode_from_tokens(
-                        aux_tokens,
-                        aux_out['skips'],
-                        aux_out['spatial_shape'],
-                        inv_cds_order=aux_out.get('inv_cds_order', None),
-                    )
-                    aux_seg_list.append(aux_seg)
+        # NOTE: Auxiliary domains (Swirski/LPW) are used for FEATURE-LEVEL domain
+        # alignment ONLY. They must NOT be decoded into seg logits, because their
+        # pupil-only labels would cause DomainConsistencyLoss to suppress Iris/Sclera
+        # predictions via KL divergence → mode collapse (all-background prediction).
+        # Only their serialized tokens are gathered for StructuralContrastiveLoss.
 
         # Gather all serialized tokens for contrastive loss
         primary_tokens = None
@@ -224,7 +212,6 @@ class VivimSAGDWrapper(nn.Module):
             'seg_logits': primary_seg,
             'primary_tokens': primary_tokens,
             'aux_tokens_list': aux_tokens_list,
-            'aux_seg_list': aux_seg_list,
         }
 
 
@@ -522,16 +509,26 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             # No primary domain in this batch, skip
             return {'loss': 0.0}
 
-        # Compute loss
+        # Compute loss — auxiliary domains contribute ONLY tokens (feature-level),
+        # NOT seg logits. DomainConsistencyLoss is disabled (weight=0 in config).
         loss_dict = self.sadg_loss(
             seg_logits=output['seg_logits'],
             labels=primary_labels,
             primary_tokens=output.get('primary_tokens', None),
             auxiliary_tokens_list=output.get('aux_tokens_list', None),
-            auxiliary_logits_list=output.get('aux_seg_list', None),
+            auxiliary_logits_list=None,  # Swirski/LPW: feature alignment only, no seg KL
+            current_epoch=self.current_epoch,
         )
 
         l = loss_dict['total']
+
+        # Accumulate per-loss components for epoch-level wandb logging
+        if not hasattr(self, '_loss_accum'):
+            self._loss_accum = {'seg': 0.0, 'dc': 0.0, 'sc': 0.0, 'count': 0}
+        self._loss_accum['seg'] += loss_dict['seg'].item()
+        self._loss_accum['dc'] += loss_dict['domain_consistency'].item()
+        self._loss_accum['sc'] += loss_dict['structural_contrastive'].item()
+        self._loss_accum['count'] += 1
 
         # Safe step-skip on NaN/Inf: DO NOT use nan_to_num to mask bad loss,
         # as corrupted gradients from fake loss values destroy all network weights.
@@ -705,7 +702,16 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
                 prec = ext.get('precision_per_class', [0.0, 0.0, 0.0])
                 rec = ext.get('recall_per_class', [0.0, 0.0, 0.0])
 
+                # Per-loss component averages (accumulated in train_step)
+                loss_comp = getattr(self, '_loss_accum', {'seg': 0, 'dc': 0, 'sc': 0, 'count': 1})
+                n_comp = max(loss_comp['count'], 1)
+                avg_seg_loss = loss_comp['seg'] / n_comp
+                avg_dc_loss = loss_comp['dc'] / n_comp
+                avg_sc_loss = loss_comp['sc'] / n_comp
+                self._loss_accum = {'seg': 0.0, 'dc': 0.0, 'sc': 0.0, 'count': 0}  # reset
+
                 print(f"[SAGD Detailed Metrics] Epoch {epoch_idx} -> train_loss: {train_loss:.4f}, val_loss: {val_loss:.4f} | "
+                      f"Loss Components: [seg: {avg_seg_loss:.4f}, dc: {avg_dc_loss:.4f}, sc: {avg_sc_loss:.4f}] | "
                       f"Dice: [Pupil: {pupil_dice:.4f}, Iris: {iris_dice:.4f}, Sclera: {sclera_dice:.4f}, Mean: {mean_fg_dice:.4f}] | "
                       f"IoU: [Pupil: {iou[0]:.4f}, Iris: {iou[1]:.4f}, Sclera: {iou[2]:.4f}, mIoU: {ext.get('mean_iou', 0.0):.4f}] | "
                       f"Precision: [Pupil: {prec[0]:.4f}, Iris: {prec[1]:.4f}, Sclera: {prec[2]:.4f}, Mean: {ext.get('mean_precision', 0.0):.4f}] | "
@@ -715,6 +721,9 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
                     "epoch": epoch_idx,
                     "train_loss": train_loss,
                     "val_loss": val_loss,
+                    "loss_seg": avg_seg_loss,
+                    "loss_domain_consistency": avg_dc_loss,
+                    "loss_structural_contrastive": avg_sc_loss,
                     "pupil_dice": pupil_dice,
                     "iris_dice": iris_dice,
                     "sclera_dice": sclera_dice,
