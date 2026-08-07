@@ -18,7 +18,7 @@ from datasets.openeds_dataset import OpenEDS192SequenceDataset
 class VivimBackboneNNUNet(nn.Module):
     """
     nnUNet-compatible wrapper for Vivim (Video Vision Mamba).
-    Natively receives 5D Temporal Sequences [B, T=3, C=1, H, W] for true Spatio-Temporal Mamba Scanning.
+    Natively receives 5D Temporal Sequences [B, T, C=1, H, W] for true Spatio-Temporal Mamba Scanning.
     """
     def __init__(self, in_channels: int = 1, num_classes: int = 4, base_channels: int = 32, d_state: int = 16, d_conv: int = 4, expand: int = 2):
         super().__init__()
@@ -34,7 +34,7 @@ class VivimBackboneNNUNet(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim == 5:
-            # True 5D Temporal Sequence: [B, T=3, C=1, H, W] -> Temporal Mamba Bottleneck
+            # True 5D Temporal Sequence: [B, T, C=1, H, W] -> Temporal Mamba Bottleneck
             out = self.backbone(x)  # [B, Num_Classes, H, W]
             return out
         elif x.ndim == 4:
@@ -47,7 +47,7 @@ class VivimBackboneNNUNet(nn.Module):
 
 class nnUNetSequenceDataLoaderWrapper:
     """
-    Wraps OpenEDS400SequenceDataset to yield 5D Temporal Sequence batches [B, T=3, C, H, W]
+    Wraps OpenEDS192SequenceDataset to yield 5D Temporal Sequence batches [B, T, C, H, W]
     in the exact format expected by nnUNetTrainer ({'data': ..., 'target': ...}).
     """
     def __init__(self, dataloader: DataLoader):
@@ -65,43 +65,49 @@ class nnUNetSequenceDataLoaderWrapper:
             batch = next(self.iterator)
 
         return {
-            'data': batch['images'],               # [B, T=3, 1, 448, 448] (연속 3프레임 시퀀스)
-            'target': batch['label'].unsqueeze(1), # [B, 1, 448, 448] (정답 마스크)
+            'data': batch['images'],               # [B, T, 1, 192, 192] (연속 T프레임 시퀀스)
+            'target': batch['label'].unsqueeze(1), # [B, 1, 192, 192] (정답 마스크)
         }
 
 
 class nnUNetTrainer_Vivim(nnUNetTrainer):
     """
-    Custom nnUNetTrainer integrating Vivim (Video Vision Mamba) with TRUE 3-frame Temporal Sequence DataLoader
-    natively inside nnUNet v2.
+    Unified custom nnUNetTrainer integrating Vivim (Video Vision Mamba) with TRUE Temporal Sequence DataLoader.
+    Supports dynamic temporal window (T=3, T=5, T=7, etc.) via TEMPORAL_WINDOW env var.
     """
     def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, device: torch.device = torch.device('cuda')):
         super().__init__(plans, configuration, fold, dataset_json, device)
         self.enable_deep_supervision = False
         self.num_iterations_per_epoch = 250
         self.num_val_iterations_per_epoch = 50
+        self.temporal_window = int(os.environ.get('TEMPORAL_WINDOW', '3'))
+
+        # Ensure output folder is unique per T value to prevent output collision/overlap
+        if self.temporal_window != 3:
+            self.output_folder = self.output_folder + f"_T{self.temporal_window}"
+            os.makedirs(self.output_folder, exist_ok=True)
 
     def set_deep_supervision_enabled(self, enabled: bool):
         pass
 
     def get_plain_dataloaders(self, initial_patch_size=None, dim=None):
         """
-        Overrides nnUNet's default 2D DataLoader to yield TRUE 3-frame Temporal Sequences (T=3).
+        Overrides nnUNet's default 2D DataLoader to yield TRUE Temporal Sequences (T=temporal_window).
         """
-        print("[nnUNetTrainer_Vivim] Loading True 3-frame Temporal Sequence DataLoader (T=3)!", flush=True)
+        print(f"[nnUNetTrainer_Vivim] Loading True {self.temporal_window}-frame Temporal Sequence DataLoader (T={self.temporal_window})!", flush=True)
         seq_root = "/home/iulab0/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted"
         pseudo_root = "/home/iulab0/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_192"
 
         train_ds = OpenEDS192SequenceDataset(
             image_dir=os.path.join(seq_root, 'train'),
             label_dir=os.path.join(pseudo_root, 'train'),
-            temporal_window=3,
+            temporal_window=self.temporal_window,
         )
 
         val_ds = OpenEDS192SequenceDataset(
             image_dir=os.path.join(seq_root, 'validation'),
             label_dir=os.path.join(pseudo_root, 'validation'),
-            temporal_window=3,
+            temporal_window=self.temporal_window,
         )
 
         train_loader = DataLoader(train_ds, batch_size=self.configuration_manager.batch_size, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
@@ -112,8 +118,8 @@ class nnUNetTrainer_Vivim(nnUNetTrainer):
     def on_train_start(self):
         super().on_train_start()
         if self.local_rank == 0:
-            run_name = f"nnUNet_Vivim_Mamba_Temporal_fold{self.fold}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            print(f"[nnUNetTrainer_Vivim] Initializing WandB Sync for Temporal run: {run_name}", flush=True)
+            run_name = f"nnUNet_Vivim_Mamba_Temporal_T{self.temporal_window}_fold{self.fold}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            print(f"[nnUNetTrainer_Vivim] Initializing WandB Sync for Temporal T={self.temporal_window} run: {run_name}", flush=True)
             wandb.init(
                 project="eyeball-3d",
                 name=run_name,
@@ -122,7 +128,7 @@ class nnUNetTrainer_Vivim(nnUNetTrainer):
                     "plans": self.plans_manager.plans_name,
                     "configuration": self.configuration_name,
                     "fold": self.fold,
-                    "temporal_window": 3,
+                    "temporal_window": self.temporal_window,
                     "num_epochs": self.num_epochs,
                     "initial_lr": self.initial_lr,
                 }

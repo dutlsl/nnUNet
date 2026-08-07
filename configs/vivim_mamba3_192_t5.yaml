@@ -1,0 +1,75 @@
+# ViViM + Mamba3 + RITnet Preprocessing + 192×192 (Temporal Window T=5)
+# 5-Frame Spatio-Temporal Sequence Training Configuration
+
+ablation:
+  use_mamba: true
+  mamba_version: "mamba3"       # "mamba1" | "mamba2" | "mamba3" | "fallback"
+  use_sclera_containment: true
+  use_sphere_head: true
+  use_weakmed: true
+
+data:
+  dataset: openeds_sequence
+  sequence_root: /home/iulab0/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
+  pseudo_label_root: /home/iulab0/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_192
+  temporal_window: 5
+
+  # Preprocessing mode
+  preprocessing: ritnet           # "ritnet" | "zscore"
+  target_resolution: [192, 192]   # Pupil Core 네이티브 해상도
+
+  # RITnet preprocessing params
+  gamma: 0.8
+  clahe_clip_limit: 1.5
+  clahe_tile_size: 8
+  normalize_mean: 0.5
+  normalize_std: 0.5
+
+model:
+  backbone: vivim
+  base_channels: 32
+  num_classes: 4
+  mamba:
+    d_state: 64
+    d_conv: 4
+    expand: 2
+    headdim: 64
+
+  sphere_head:
+    hidden_dim: 128
+    max_radius: 200.0
+    min_radius: 30.0
+    sharpness: 20.0
+    sharpness_anneal_epochs: 50
+    sharpness_max: 50.0
+
+training:
+  batch_size: 16                  # 192×192 해상도에서 T=5 메모리 점유 충분히 수용
+  epochs: 1000
+  lr: 0.001
+  num_iterations_per_epoch: 250
+  num_val_iterations_per_epoch: 50
+  num_workers: 4
+  weight_decay: 0.0001
+  early_stopping:
+    patience: 100000
+    min_epochs: 1000
+
+losses:
+  seg_dice_ce:
+    weight: 1.0
+  weakmed_m2b:
+    weight: 1.0
+  weakmed_sc:
+    weight: 0.5
+  sclera_containment:
+    weight: 0.5
+    warmup_epochs: 10
+
+experiment:
+  name: vivim_mamba3_192_t5
+  seed: 42
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: mamba3_ritnet_192_t5

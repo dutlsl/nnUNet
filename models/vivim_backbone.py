@@ -35,6 +35,9 @@ class VivimBackbone(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         use_mamba: bool = True,
+        mamba_version: str = "mamba3",
+        mamba_headdim: int = 64,
+        **kwargs,
     ):
         super().__init__()
         self.use_mamba = use_mamba
