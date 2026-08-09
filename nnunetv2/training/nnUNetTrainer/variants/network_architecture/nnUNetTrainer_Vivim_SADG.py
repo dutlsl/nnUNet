@@ -299,7 +299,8 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
             'NNUNET_PROJECT_ROOT',
             os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..'))
         )
-        config_path = os.path.join(_project_root, 'configs', 'sadg_vivim.yaml')
+        config_name = os.environ.get('SAGD_CONFIG_FILE', 'sadg_vivim.yaml')
+        config_path = os.path.join(_project_root, 'configs', config_name)
         self.sadg_cfg = load_config(config_path)
         self._project_root = _project_root
 
@@ -459,15 +460,17 @@ class nnUNetTrainer_Vivim_SADG(nnUNetTrainer):
     def get_dataloaders(self):
         """Build multi-domain DataLoaders dynamically managed by nnUNet configuration_manager."""
         batch_size = self.configuration_manager.batch_size
-        num_domains = getattr(self.sadg_cfg.model.hdm, 'num_domains', 3)
-        samples_per_domain = max(batch_size // num_domains, 1)
-        print(f"[SAGD] Building multi-domain DataLoaders (batch_size={batch_size}, {samples_per_domain} samples/domain, num_iterations={self.num_iterations_per_epoch})...", flush=True)
 
         loaders = get_multi_domain_dataloaders(
             self.sadg_cfg,
             batch_size=batch_size,
             num_iterations=self.num_iterations_per_epoch,
         )
+
+        num_domains = loaders['train'].dataset.datasets[0].domain_id if hasattr(loaders['train'].dataset, 'datasets') else 2
+        actual_domains = len(loaders['train'].batch_sampler.datasets)
+        samples_per_domain = max(batch_size // actual_domains, 1)
+        print(f"[SAGD] Building multi-domain DataLoaders (batch_size={batch_size}, {samples_per_domain} samples/domain ({actual_domains} domains), num_iterations={self.num_iterations_per_epoch})...", flush=True)
 
         train_wrapper = MultiDomainDataLoaderWrapper(loaders['train'], self.device)
         val_wrapper = SingleDomainDataLoaderWrapper(loaders['validation'], self.device)
