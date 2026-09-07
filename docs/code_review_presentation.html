@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pupil Fork Code Review — 발표 자료</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-slide: #111827;
+    --card: #1a2332;
+    --border: #2d3a4f;
+    --text: #e6edf3;
+    --muted: #9aa7b8;
+    --accent: #4da3ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: var(--bg); font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; color: var(--text); }
+  .deck { height: 100%; overflow: hidden; }
+  .slide {
+    display: none;
+    height: 100vh;
+    padding: 3.2vmin 4.5vmin;
+    flex-direction: column;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .slide.active { display: flex; }
+  .slide-number-badge {
+    position: absolute; top: 2vmin; right: 3vmin;
+    font-size: 1.6vmin; color: var(--muted); letter-spacing: .08em;
+  }
+  .tag {
+    display: inline-block; font-size: 1.7vmin; font-weight: 600;
+    padding: .35vmin 1.2vmin; border-radius: 1.2vmin;
+    background: rgba(77,163,255,.15); color: var(--accent);
+    border: 1px solid rgba(77,163,255,.4); margin-bottom: 1.6vmin;
+  }
+  h1 { font-size: 5.6vmin; line-height: 1.2; font-weight: 800; }
+  h2 { font-size: 3.4vmin; line-height: 1.25; font-weight: 800; margin-bottom: 2.2vmin; }
+  h2 .sub { display: block; font-size: 1.9vmin; font-weight: 400; color: var(--muted); margin-top: .8vmin; }
+  .subtitle { font-size: 2.2vmin; color: var(--muted); margin-top: 2vmin; }
+  .meta { font-size: 1.8vmin; color: var(--muted); margin-top: 4vmin; line-height: 1.8; }
+  .body { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: 2vmin; }
+  ul, ol { padding-left: 2.2vmin; }
+  li { font-size: 2.05vmin; line-height: 1.55; margin-bottom: .9vmin; color: var(--text); }
+  li .m { color: var(--muted); }
+  strong { color: #fff; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2.2vmin; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2vmin; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 1.6vmin; padding: 2vmin 2.4vmin;
+  }
+  .card h3 { font-size: 2.1vmin; margin-bottom: 1.2vmin; color: var(--accent); }
+  .card ul li { font-size: 1.85vmin; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 1.85vmin;
+    background: var(--card); border-radius: 1.4vmin; overflow: hidden;
+  }
+  th { text-align: left; padding: 1.2vmin 1.6vmin; background: #212d40; color: var(--accent); font-size: 1.8vmin; border-bottom: 2px solid var(--border); }
+  td { padding: 1.1vmin 1.6vmin; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  code { font-family: "SF Mono", Consolas, monospace; font-size: .92em; background: #243248; padding: .15vmin .5vmin; border-radius: .5vmin; color: #ffd8a8; }
+  .good { color: var(--green); font-weight: 700; }
+  .bad { color: var(--red); font-weight: 700; }
+  .warn { color: var(--yellow); font-weight: 700; }
+  .purple { color: var(--purple); font-weight: 700; }
+  .chip { display:inline-block; font-size:1.5vmin; padding:.2vmin .9vmin; border-radius:.8vmin; margin-right:.5vmin; }
+  .chip.p0 { background: rgba(248,81,73,.18); color: var(--red); border:1px solid rgba(248,81,73,.45); }
+  .chip.p1 { background: rgba(210,153,34,.18); color: var(--yellow); border:1px solid rgba(210,153,34,.45); }
+  .chip.p2 { background: rgba(188,140,255,.18); color: var(--purple); border:1px solid rgba(188,140,255,.45); }
+  .flow { display: flex; align-items: center; gap: 1.2vmin; flex-wrap: wrap; }
+  .flow .node {
+    background: var(--card); border: 1px solid var(--border); border-radius: 1.2vmin;
+    padding: 1vmin 1.6vmin; font-size: 1.75vmin; text-align: center; line-height: 1.4;
+  }
+  .flow .node small { display:block; color: var(--muted); font-size: 1.4vmin; }}
+  .flow .arrow { color: var(--accent); font-size: 2.4vmin; }
+  .hl { color: #ffd8a8; font-weight: 700; }
+  .footer { font-size: 1.5vmin; color: var(--muted); margin-top: auto; padding-top: 1.4vmin; border-top: 1px solid var(--border); }
+  .progress {
+    position: fixed; left: 0; bottom: 0; height: .5vmin; background: var(--accent); width: 0%;
+    transition: width .25s ease; z-index: 10;
+  }
+  .counter { position: fixed; right: 2.4vmin; bottom: 1.6vmin; font-size: 1.6vmin; color: var(--muted); z-index: 10; }
+  .hint { position: fixed; left: 2.4vmin; bottom: 1.6vmin; font-size: 1.5vmin; color: #55606f; z-index: 10; }
+  .kpi { display: flex; gap: 2vmin; flex-wrap: wrap; margin-bottom: 1vmin; }
+  .kpi .box { flex: 1; min-width: 18vmin; background: var(--card); border: 1px solid var(--border); border-radius: 1.4vmin; padding: 1.6vmin 2vmin; }
+  .kpi .num { font-size: 3.4vmin; font-weight: 800; color: var(--accent); }
+  .kpi .lbl { font-size: 1.6vmin; color: var(--muted); margin-top: .4vmin; }
+  .kpi .g .num { color: var(--green); } .kpi .r .num { color: var(--red); }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- 1. Title -->
+<section class="slide" id="s1">
+  <span class="slide-number-badge">01 / 13</span>
+  <div class="body" style="justify-content:center; align-items:center; text-align:center;">
+    <span class="tag">CODE REVIEW</span>
+    <h1>Pupil Fork 코드 리뷰</h1>
+    <div class="subtitle">심층학습 동공 감지기(Mamba-3 / RITnet / 2D C++) 통합 및 검증 파이프라인</div>
+    <div class="meta">
+      분기 <code>nnunet-mamba3</code> · HEAD <code>9c61614a</code><br>
+      최근 커밋 46개 + <span class="warn">워킹 트리에 미커밋 변경 12개 파일</span> · 발표일 2026-08-24
+    </div>
+  </div>
+</section>
+
+<!-- 2. Overview -->
+<section class="slide" id="s2">
+  <span class="slide-number-badge">02 / 13</span>
+  <span class="tag">OVERVIEW</span>
+  <h2>프로젝트 개요</h2>
+  <div class="body">
+    <div class="grid2">
+      <div class="card">
+        <h3>이 포크는? (upstream 기반)</h3>
+        <ul>
+          <li><strong>Pupil Labs Pupil</strong>: 오픈소스 아이트래킹 스택 (eye/world 프로세스 + ZMQ IPC + 플러그인 아키텍처)</li>
+          <li>이 포크의 핵심 목표: 기존 2D C++ 엣지 기반 검출기 외에 <span class="hl">신경망 동공 분할기</span>를 병행 운영</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>추가된 3가지 동공 검출 방법</h3>
+        <ul>
+          <li><strong>Mamba-3 (Vivim)</strong>: 시계열 SSM (T=7) — 실시간 동적 윈도우 추론</li>
+          <li><strong>RITnet</strong>: DenseNet2D 단일 프레임 분할 (기존 pretrained)</li>
+          <li><strong>2D C++</strong>: upstream C++ 엣지 기반 검출기 (베이스라인)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin-top: 2vmin;">
+      <h3>레포 구조 (커스텀 영역)</h3>
+      <div class="flow">
+        <div class="node">pupil_src<small>main / eye / world</small></div>
+        <div class="node">shared_modules<small>gaze_mapping · calibration · detectors</small></div>
+        <div class="node">vivim/<small>Mamba 백본 (untracked)</small></div>
+        <div class="node">tests<small>검증 하네스</small></div>
+        <div class="node">docs<small>분석 문서 8종</small></div>
+        <div class="node">benchmarks<small>TDTracker 벤치마크</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Architecture -->
+<section class="slide" id="s3">
+  <span class="slide-number-badge">03 / 13</span>
+  <span class="tag">ARCHITECTURE</span>
+  <h2>시스템 아키텍처</h2>
+  <div class="body">
+    <div class="flow">
+      <div class="node">Frame (eye cam)<small>400×400</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Detector2DPlugin.detect()<small>eye 프로세스 · 동기 추론</small></div>
+      <span class="arrow">→</span>
+      <div class="node">pupil_datum<small>ZMQ IPC (eye → world)</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Gazer2D<small>2차 다항 + LinearRegression</small></div>
+      <span class="arrow">→</span>
+      <div class="node">gaze<small>gaze.2d.&lt;id&gt;.</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Accuracy_Visualizer<small>각도 정밀도/정확도</small></div>
+    </div>
+    <div class="grid2" style="margin-top: 1vmin;">
+      <div class="card">
+        <h3>프로세스 모델</h3>
+        <ul>
+          <li><code>main.py</code>가 eye(2개) + world 프로세스를 spawn, <strong>ZMQ XPUB/XSUB/PULL</strong> 백본 (50020–50022)</li>
+          <li>플러그인은 <code>__init_subclass__</code> 자동 등록 — gaze_mapping/detector 모두 동일 패턴</li>
+          <li>동공 추론은 eye 루프 내 <span class="hl">동기 블로킹</span> → 프레임 레이트가 추론 시간에 좌우됨</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>검증(VALIDATION) 플로우</h3>
+        <ul>
+          <li>calibration: ref·pupil 수집 → <strong>Gazer fit</strong> (이차 특징 6/12차원, 70px 아웃라이러 제거)</li>
+          <li>validation: <strong>fit된 파라미터 재사용</strong> (commit <code>6eee2890</code>에서 re-fit 우회책을 폐기)</li>
+          <li>정확도/정밀도는 각도 공간(cos)에서 계산</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer">핵심 통찰: 검출기(시각)와 gaze 매핑(기하)이 완전히 분리 — 검출기가 무엇을 내뱉든 gazer는 <code>method</code> 라벨로만 구분</div>
+  </div>
+</section>
+
+<!-- 4. Model routing -->
+<section class="slide" id="s4">
+  <span class="slide-number-badge">04 / 13</span>
+  <span class="tag">CUSTOM FEATURE ①</span>
+  <h2>3-way 모델 라우팅 <span class="sub">Detector2DPlugin (detector_2d_plugin.py)</span></h2>
+  <div class="body">
+    <table>
+      <tr><th>방법</th><th>전처리</th><th>입력 텐서</th><th>모델</th><th>후처리 공통</th></tr>
+      <tr>
+        <td><strong>Mamba3 (T=7)</strong><br><span class="m">Vivim</span></td>
+        <td>Z-score → 400×400 리사이즈 → 448×448 letterbox(24px 패딩) → deque(maxlen=7)</td>
+        <td><code>[1,7,1,448,448]</code></td>
+        <td>VivimBackbone<br>(UNet + TemporalMamba)</td>
+        <td rowspan="3" style="vertical-align:middle;">마스크 → 윤곽선 → <code>fitEllipse</code> → 블링크 제외<br>EMA(α=0.4) + 40px 점프 거부 → datum<br><span class="warn">confidence = 1.0 하드코딩</span> (Pye3D 0.98 임계와 연동)</td>
+      </tr>
+      <tr>
+        <td><strong>RITnet</strong></td>
+        <td>gamma 0.8 LUT + CLAHE → ToTensor + Normalize(0.5)</td>
+        <td>단일 프레임</td>
+        <td>DenseNet2D<br>(pupil_src/best_model.pkl)</td>
+      </tr>
+      <tr>
+        <td><strong>2D C++</strong></td>
+        <td>CLAHE(gray)</td>
+        <td>—</td>
+        <td>upstream C++ Detector2D<br>(&lt;1ms/프레임)</td>
+      </tr>
+    </table>
+    <div class="grid2">
+      <div class="card">
+        <h3>UI 선택자 (f782afae)</h3>
+        <ul>
+          <li>모델 드롭다운을 <code>["Mamba3 (T=7)", "2D C++", "RITnet"]</code>로 제한 (이전 T=3/5/7/9/11 5개 ≈ 250MB 동시 로드 문제를 해소)</li>
+          <li><code>enable_calibration</code> 스위치 추가: OFF 시 gazer 우회 → pupil norm_pos를 gaze로 직통</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>시작 시 행동 주의점</h3>
+        <ul>
+          <li>시계열 큐의 처음 T−1 프레임은 <span class="hl">현재 프레임 복제로 패딩</span> → 스트림 시작부는 실제 시계열 아님 (<code>detector_2d_plugin.py:409-412</code>)</li>
+          <li>모델 로딩 실패는 <code>except Exception</code>로 <strong>warning 후 None으로 격화</strong> → 이후 빈 datum만 반환</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. Calibration flow -->
+<section class="slide" id="s5">
+  <span class="slide-number-badge">05 / 13</span>
+  <span class="tag">CUSTOM FEATURE ②</span>
+  <h2>Calibration ↔ Validation 분리와 IPC 동기화</h2>
+  <div class="body">
+    <div class="grid3">
+      <div class="card">
+        <h3>CALIBRATION (C 버튼)</h3>
+        <ul>
+          <li>마커 패턴 이동 → ref·pupil 수집</li>
+          <li>마지막에 <strong>Gazer fit</strong> 수행<br>(<code>calibration_choreography/base_plugin.py:339</code>)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>VALIDATION (T 버튼)</h3>
+        <ul>
+          <li>기존 gazer <code>get_params()</code> 스냅샷 → <code>validation.data</code> notification</li>
+          <li>Accuracy_Visualizer가 임시 gazer로 재구성 후 각도 정확도/정밀도 계산</li>
+          <li><span class="good">re-fit 우회책(702e9bde) 폐기</span> — test 정확도가 train 정확도로 오염되던 문제 해결</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>enable_calibration 동기화</h3>
+        <ul>
+          <li>setter가 <code>g_pool</code> + 활성 gazer에 쓰고 <code>calibration.set_enabled</code> broadcast</li>
+          <li>Eye↔World 양쪽 프로세스가 notification 수신 시 재적용 → UI/IPC 상태 일치</li>
+          <li>flag는 <code>get_params/set_params</code>에 영속화 (<code>gazer_base.py:242-245</code>)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <h3>리뷰 포인트</h3>
+      <ul>
+        <li><span class="warn">동일한 property가 3곳에 복제</span> (detector_2d_plugin.py:141 / base_plugin.py:266 / gazer duck-typing) — 변경 시 한 곳이 누락되면 상태 비일관</li>
+        <li>검증 시 임시 gazer가 <strong>모든 화면/모델 상태를 다시 구성</strong> — fit 비용 발생, 가독성 부담 (<code>accuracy_visualizer.py:444</code>)</li>
+        <li>워킹 트리: 화면 마커 패턴 확장(5/9/12점, 다이아몬드/4코너) 미커밋 — 측정 조건 표준화와 직결</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Recent fixes -->
+<section class="slide" id="s6">
+  <span class="slide-number-badge">06 / 13</span>
+  <span class="tag">RECENT CHANGES</span>
+  <h2>최근 핵심 수정 (commit 분석)</h2>
+  <div class="body">
+    <table>
+      <tr><th style="width:24%">수정</th><th style="width:38%">내용</th><th>평가</th></tr>
+      <tr>
+        <td><code>6a43b3e3</code><br>validation data drop</td>
+        <td>pupil 필터가 <code>"2d" in method</code> 포함 검사 → Mamba3/RITnet datum 100% 제외. <strong>배제 로직으로 반전</strong>: <code>"3d" not in method.lower()</code></td>
+        <td><span class="good">정확한 근원 원인 분석</span> + 수정. 다만 <code>method</code> 키가 없는 datum을 무조건 통과시키는 잔여 리스크</td>
+      </tr>
+      <tr>
+        <td><code>c0454e08</code><br>dispersion relaxation</td>
+        <td>바인칭 66.7ms 고정이 DL 검출기(15-20fps, 시계스탬프 켄켄)와 충돌 → 4개 매칭 함수 모두 <strong>진행적 완화 래더</strong> (66.7ms→0.2→0.5→1.0→2.0s, ≥max(3,40%)이면 조기종료)</td>
+        <td><span class="good">상당한 설계</span>: 데이터가 밀도 있으면 엄격, 희소하면 자동 완화. 단, 4개 함수에 동일 코드 복제 ×4</td>
+      </tr>
+      <tr>
+        <td><code>c0454e08</code><br>outlier_threshold</td>
+        <td>1.3° → <strong>1.5° 고정</strong> (역사: 5.0→2.5→1.5→1.3→1.5)</td>
+        <td><span class="bad">워킹 트리에 1.2°로 미커밋 변경</span> — "고정"된 값이 다시 유동화</td>
+      </tr>
+      <tr>
+        <td><code>8441ecc3</code><br>로그 파싱</td>
+        <td>fit RMSE 로그 debug→info + 데몬 스레드 기반 로그 파서로 RMSE/정확도 추출 → <code>recordings/*.log</code></td>
+        <td><span class="warn">워킹 트리에 파서 제거</span>, <code>SessionLogTee</code>(main.py)로 대체 — 방향은 좋지만 예외를 <code>pass</code>로 삼킴</td>
+      </tr>
+      <tr>
+        <td><code>c5fe09ca</code> → <code>4bfdea4b</code><br>오디오 수정</td>
+        <td>음원 파일 없는 <code>open()</code> 에러 제거 시도 → <code>os.path.exists</code> 사용하지만 <code>import os</code> 누락 → NameError → <strong>수정 전체 revert</strong></td>
+        <td>regression 발생·수정 과정이 commit message에 잘 기록. 단, paplay stderr 노이즈는 <span class="warn">현재까지 미해결</span></td>
+      </tr>
+    </table>
+  </div>
+</section>
+
+<!-- 7. Issues correctness -->
+<section class="slide" id="s7">
+  <span class="slide-number-badge">07 / 13</span>
+  <span class="tag">ISSUES ①</span>
+  <h2>정확성(Bug) 발견 사항 <span class="sub">우선순위 P0 — 동작을 틀리게 하는 문제</span></h2>
+  <div class="body">
+    <div class="grid2">
+      <div class="card">
+        <h3>shadowed <code>_empty_datum</code> <span class="bad">중요</span></h3>
+        <ul>
+          <li>동일 클래스에서 2번 정의 (<code>:302</code> vs <code>:580</code>) — 후자가 섀도잉</li>
+          <li>실제 사용 중인 버전은 <code>method</code> 키 미설정 → 다운스트림 필터·로그가 method 기대 datum에 대해 깨짐</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>T=5 / T=7 기본값 불일치 <span class="bad">중요</span></h3>
+        <ul>
+          <li><code>__init__</code> 기본값 <code>"Mamba3 (T=7)"</code> vs <code>detect()</code> fallback <code>"Mamba3 (T=5)"</code> (T=5 모델 미로드)</li>
+          <li><code>_vivim_queues</code>는 key=7만 존재 → T≠7 요청 시 <code>KeyError</code> (UI 제한으로 가려져 있음)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>잔여·무효 코드</h3>
+        <ul>
+          <li>accuracy_visualizer의 0.2→2.0s 재시도 루프는 <strong>매칭 함수가 내부적으로 동일 래더를 실행하므로 항상 같은 결과를 반환</strong> — 무효 로직</li>
+          <li><code>_detect_temporal_unet</code>/<code>_detect_nnunet_2d</code>는 존재하지 않는 인스턴스 속성 참조</li>
+          <li>미사용 import 다수 (<code>fit_ellipse</code>, <code>deepvog</code>, <code>edgaze</code> 등)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>에러 처리 & 검증</h3>
+        <ul>
+          <li><code>GazerBase.__init__</code>의 blanket <code>except</code> — 어떤 프로그래밍 오류든 "Calibration Failed!"로 변환, traceback는 DEBUG로만 출력</li>
+          <li>차원 검증에 <code>assert</code> 사용 (<code>gazer_2d.py:146-157</code>) — <code>-O</code> 모드에서 제거됨 → <code>AssertionError</code>가 예기치 못한 경로로 유입</li>
+          <li><code>Ellipsis</code>를 control-flow sentinel로 사용 — 가독성 ↓</li>
+          <li><code>get_init_dict</code>가 <code>active_model</code>·flip flag 미영속 → 세션 복원 시 설정 손실</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. Issues security/portability -->
+<section class="slide" id="s8">
+  <span class="slide-number-badge">08 / 13</span>
+  <span class="tag">ISSUES ②</span>
+  <h2>보안 & portability <span class="sub">환경 의존 리스크</span></h2>
+  <div class="body">
+    <div class="grid2">
+      <div class="card">
+        <h3>시큐리티</h3>
+        <ul>
+          <li><code>torch.load(weights_only=False)</code> ×3 (Mamba3, RITnet ×2) — 로컬 체크포인트라도 <span class="bad">임의 pickle 실행 위험</span>. <code>weights_only=True</code> + state-dict만 로드 권장</li>
+          <li><code>strict=False</code> 로딩 → 키 불일치 시 <strong>무음 실패</strong> 가능 (실제로 <code>backbone.</code> 프리픽스 strip 로직이 존재)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>hardcoded 개발자 경로</h3>
+        <ul>
+          <li><code>NNUNET_DIR = ~/PycharmProjects/nnUNet</code> + <code>sys.path</code> 인젝션 (<code>detector_2d_plugin.py:62-68</code>) — 다른 머신에서 즉시 실행 불가</li>
+          <li>env var 또는 package-relative 경로로 대체 필요</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>방어적 monkey-patch</h3>
+        <ul>
+          <li>import 시 <code>torch.float4_e2m1fn_x2</code>/<code>float8_e8m0fnu</code> 가짜 속성 주입</li>
+          <li><code>sys.modules["numpy._core"]</code> shim — numpy/torch 버전 갱신 시 깨짐 지점</li>
+          <li>main.py의 <code>torch.load</code> 전역 패치 — 모듈 경계 훼손</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>레포 위생</h3>
+        <ul>
+          <li>루트에 미트래킹 <strong>~20MB .pth 2개 + vivim/ (untracked)</strong> — 실수로 커밋되면 레포 팽창</li>
+          <li>미커밋 문서·설문 2개, <code>__pycache__</code>에 CPython 3.7–3.10 바이트코드 혼재 (다중 인터프리터 개발 환경)</li>
+          <li>리뷰 대상 자체가 <span class="warn">커밋 ≠ 디스크 상태</span> (detector_2d_plugin.py -305줄) — 발표 기준선 명시 필요</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Issues concurrency -->
+<section class="slide" id="s9">
+  <span class="slide-number-badge">09 / 13</span>
+  <span class="tag">ISSUES ③</span>
+  <h2>동시성 & 견고성</h2>
+  <div class="body">
+    <div class="grid2">
+      <div class="card">
+        <h3>로그 파서 스레드 (HEAD 기준) <span class="warn">워킹 트리에서 제거됨</span></h3>
+        <ul>
+          <li>notification마다 데몬 스레드 spawn, <code>time.sleep(0.5)</code> 타이밍 가정으로 메인 프로세스가 쓰고 있는 같은 로그 파일을 읽음 → <strong>읽기/쓰기 레이스</strong></li>
+          <li>클로저가 <code>self</code>·<code>active_model</code>을 타스레드에서 참조 — 플러그인 상태 무결성 리스크</li>
+          <li>워킹 트리의 SessionLogTee 방향은 올바르나 <code>except Exception: pass</code>로 <span class="bad">디스크 오류·쓰기 실패가 무음 처리</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>참고 사례: Hybrid DVS 플러그인</h3>
+        <ul>
+          <li><code>threading.Lock</code> + <code>Event</code> + bounded <code>Queue</code> + multiprocessing spawn 컨텍스트 — 이 영역에서 가장 잘 설계된 코드</li>
+          <li>벤치마크 수치는 우수하나(하단 슬라이드) 결과 전달 경로가 병목</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <h3>기타</h3>
+      <ul>
+        <li>실시간 매처의 <code>recently_estimated_framerate</code> 변수는 실은 <strong>period(s/frame)</strong> — 명명 반전 hazard (<code>matching.py:21</code>)</li>
+        <li><code>map_batch</code> 등 데드 API, f-string에 플래시홀더 없는 <code>f"calibration.successful"</code> 등 미세 smell 다수</li>
+        <li>batch 매칭: threshold 5단계마다 모든 ref에 대해 nearest-neighbor 재계산 → <strong>최대 5배 중복 계산</strong> (인덱스는 threshold와 무관 — 단일 패스 + 스윕으로 최적화 가능)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 10. Performance -->
+<section class="slide" id="s10">
+  <span class="slide-number-badge">10 / 13</span>
+  <span class="tag">PERFORMANCE</span>
+  <h2>성능 데이터 <span class="sub">각도 정확도 & 지연 — RTX 4090 기준 (performance_report.md)</span></h2>
+  <div class="body">
+    <div class="kpi">
+      <div class="box"><div class="num">0.140°</div><div class="lbl">Mamba3 T=7 최정확도 (calib)</div></div>
+      <div class="box"><div class="num">-77.3%</div><div class="lbl">정확도 개선 (2D C++ 0.618° 대비)</div></div>
+      <div class="box g"><div class="num">&lt;1 ms</div><div class="lbl">2D C++ 지연 (120 FPS)</div></div>
+      <div class="box r"><div class="num">~50 ms</div><div class="lbl">DL 추론 지연 (15-20 FPS)</div></div>
+    </div>
+    <div class="grid2">
+      <div>
+        <table>
+          <tr><th>모델 (calib best)</th><th>각도 정확도</th><th>정밀도(best)</th></tr>
+          <tr><td>Mamba3 T=3</td><td>0.140°</td><td>0.025°</td></tr>
+          <tr><td>Mamba3 T=5</td><td>0.185°</td><td>0.029°</td></tr>
+          <tr><td><strong>Mamba3 T=7</strong></td><td><strong>0.140°</strong></td><td>0.037°</td></tr>
+          <tr><td>Mamba3 T=9</td><td>0.162°</td><td>0.038°</td></tr>
+          <tr><td>Mamba3 T=11</td><td>0.172°</td><td>0.035°</td></tr>
+          <tr><td>2D C++</td><td>0.618°</td><td>0.114°</td></tr>
+        </table>
+        <div style="font-size:1.7vmin; color:var(--muted); margin-top:1vmin;">모든 T가 1.0° 목표 하회. T=3–5가 최적 구간(문서 권고). RITnet ≈1.3° (version_management.md).</div>
+      </div>
+      <div class="card">
+        <h3>Hybrid RITnet + TDTracker (i9-13900K + 단일 4090)</h3>
+        <ul>
+          <li>실카메라 30s: eager <strong>693Hz</strong> → <span class="good">torch.compile 969Hz(권고)</span> → external CUDA graph 960Hz</li>
+          <li>단, graph 모드의 <strong>신선 상태는 148Hz</strong> — async 결과 링 + 최신-유지 큐가 fresh 결과를 대량 유실 (30s에 24,364건 누락)</li>
+          <li>마이크로 벤치: compile+graph <strong>2,818Hz (+54.31%)</strong> — 이론 headroom은 충분, 실측 병목은 GPU 공유·P/E코어 스케줄링</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 11. Testing & docs -->
+<section class="slide" id="s11">
+  <span class="slide-number-badge">11 / 13</span>
+  <span class="tag">TESTING & DOCS</span>
+  <h2>테스트 체계와 문서 축적</h2>
+  <div class="body">
+    <div class="grid2">
+      <div class="card">
+        <h3>tests/</h3>
+        <ul>
+          <li><code>test_validation.py</code> — 검증 파이프라인 하네스 (워킹 트리에서 +64줄, 재사용 gazer 파라미터 흐름 검증)</li>
+          <li><code>test_dummy_harness.py</code> — dummy 데이터 플로우 테스트</li>
+          <li>docs/Test_Harness.md에 수동 검증 절차 병기</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>docs/ 8종 — 리뷰의 큰 자산</h3>
+        <ul>
+          <li><code>gaze_accuracy_analysis</code> — validation 간헐 실패의 <strong>복합 4인자 근원 원인</strong> 추적 (generator 소진 + 66.7ms 고착 + 사카드 거부 + case mismatch)</li>
+          <li><code>version_management</code> — 버전별 정확도 추이: 점프의 주원인은 <span class="hl">측정 설정 변화</span>(마커 패턴 40%, 타깃 단순화 30%, 임계값 20%)이 아님 검출기 질이 아님을 정량화</li>
+          <li><code>model_extension_guide</code> — 새 검출기 추가 5단계 체크리스트 → 확장성 대비 우수</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <h3>평가</h3>
+      <ul>
+        <li><span class="good">강점</span>: 증상→근인→수정 커밋→측정 데이터가 문서로 완결된 루프. "왜 정확도가 변했나"를 정량으로 설명하는 수준은 이 포크의 가장 큰 장점</li>
+        <li><span class="warn">약점</span>: 실험 로그 네이밍 버그(test 실행이 <code>calibration.successful</code>를 유발 → 중복/잘못된 이름 로그) 등 실험 위생 이슈는 문서에 기록됐으나 코드 수정 전</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 12. Recommendations -->
+<section class="slide" id="s12">
+  <span class="slide-number-badge">12 / 13</span>
+  <span class="tag">RECOMMENDATIONS</span>
+  <h2>개선 권고 (우선순위별)</h2>
+  <div class="body">
+    <div class="grid3">
+      <div class="card">
+        <h3><span class="chip p0">P0</span> 정확성·보안 (즉시)</h3>
+        <ul>
+          <li><code>_empty_datum</code> 중복 제거 + <code>method</code> 키 필수화</li>
+          <li>T 기본값 일관 (T=5 잔여 제거, queue key 가드)</li>
+          <li><code>torch.load</code> → <code>weights_only=True</code> (또는 신뢰 범위 명시)</li>
+          <li><code>~/PycharmProjects/nnUNet</code> 하드코딩 → env var</li>
+          <li>미커밋 상태 정리: outlier 1.2° 등 변경을 의도적으로 커밋하거나 원복</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="chip p1">P1</span> 유지보수 (단기)</h3>
+        <ul>
+          <li>무효 relaxation 루프·데드 메서드·미사용 import 제거</li>
+          <li>dispersion ladder를 유틸 상수로 단일화 (4중 복제 해소에 5배 계산 중복까지 제거)</li>
+          <li>assert → 명시적 예외, <code>get_init_dict</code>에 신규 kwargs 영속화</li>
+          <li>enable_calibration property 3중 복제 → 단일 소스 + 위임</li>
+          <li>checkpoint .pth 2개에 .gitignore + LFS 검토</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="chip p2">P2</span> 성능 (중기)</h3>
+        <ul>
+          <li>Mamba3 경로 AMP (autocast) 적용 — 문서 추정 20–30% 추론 가속</li>
+          <li>active T 모델만 lazy load (이미 T=7 단일로 축소해 부분 해소)</li>
+          <li>hybrid graph 모드의 async 결과 링 수정 (fresh 148Hz → target ≥990Hz 도달 전제)</li>
+          <li>batch 매칭 nearest-neighbor 단일 패스 최적화</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <h3>진행 제안</h3>
+      <ul>
+        <li>이번 리뷰의 기준선을 <strong>HEAD <code>9c61614a</code></strong>로 고정하고, 워킹 트리 변경은 기능별 브랜치로 분리 커밋</li>
+        <li>P0 항목은 각 1일 이하 규모 — 리뷰 직후 PR로 처리 가능</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 13. Summary -->
+<section class="slide" id="s13">
+  <span class="slide-number-badge">13 / 13</span>
+  <span class="tag">SUMMARY</span>
+  <h2>요약</h2>
+  <div class="body">
+    <div class="grid3">
+      <div class="card">
+        <h3>잘 된 것</h3>
+        <ul>
+          <li>검출기/매핑 분리 아키텍처 위에 3종 모델 라우팅을 청겁하게 확장</li>
+          <li>근인 분석 → 수정 → 측정 루프가 문서로 완결 (accuracy 0.140°, C++ 대비 77% 개선)</li>
+          <li>hybrid 런타임 벤치마크 체계가 견고 (benchmarks/, 런북 완비)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>주의할 것</h3>
+        <ul>
+          <li>shadowed 메서드·기본값 불일치 등 <strong>잠복 정확성 bug</strong></li>
+          <li>pickle 역직렬화·경로 하드코딩·방어적 patch 등 <strong>portability 리스크</strong></li>
+          <li>미커밋 변경 12파일 — 리뷰·병합 전 상태 정렬 필요</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>다음 단계</h3>
+        <ul>
+          <li>P0 정확성/보안 수정 (즉시)</li>
+          <li>워킹 트리 정리 후 P1 클린업 PR</li>
+          <li>AMP·async 링 수정으로 990Hz 목표 재도전</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer">자세한 근거: docs/code_review.md · docs/gaze_accuracy_analysis.md · performance_report.md · benchmarks/server3_*</div>
+  </div>
+</section>
+
+</div>
+<div class="progress" id="progress"></div>
+<div class="counter" id="counter"></div>
+<div class="hint">←/→ 이동 · F 전체화면</div>
+<script>
+(function () {
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var cur = 0;
+  function show(i) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    slides[cur].classList.remove('active');
+    slides[i].classList.add('active');
+    cur = i;
+    location.hash = 's' + (i + 1);
+    document.getElementById('progress').style.width = ((i + 1) / slides.length * 100) + '%';
+    document.getElementById('counter').textContent = (i + 1) + ' / ' + slides.length;
+  }
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown' || e.key === 'Enter') { e.preventDefault(); show(cur + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(cur - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); show(0); }
+    else if (e.key === 'End') { e.preventDefault(); show(slides.length - 1); }
+    else if (e.key === 'f' || e.key === 'F') {
+      if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('a')) return;
+    show(e.clientX < window.innerWidth * 0.3 ? cur - 1 : cur + 1);
+  });
+  var h = location.hash.match(/^#s(\d+)$/);
+  show(h ? (parseInt(h[1], 10) - 1) : 0);
+})();
+</script>
+</body>
+</html>

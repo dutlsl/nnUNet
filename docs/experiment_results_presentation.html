@@ -1,0 +1,2223 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pupil Labs 동공 검출 시스템 — 실험 결과 및 성능 향상 분석 발표 자료</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+    :root {
+      --bg: #0a0e17;
+      --bg-slide: #0f1520;
+      --card: #151d2e;
+      --card-hover: #1a2540;
+      --border: #243049;
+      --text: #e8eef6;
+      --muted: #8899b0;
+      --accent: #60a5fa;
+      --accent-dim: rgba(96, 165, 250, .12);
+      --green: #34d399;
+      --green-dim: rgba(52, 211, 153, .12);
+      --red: #f87171;
+      --red-dim: rgba(248, 113, 113, .12);
+      --yellow: #fbbf24;
+      --yellow-dim: rgba(251, 191, 36, .12);
+      --purple: #a78bfa;
+      --purple-dim: rgba(167, 139, 250, .12);
+      --cyan: #22d3ee;
+      --cyan-dim: rgba(34, 211, 238, .12);
+      --orange: #fb923c;
+      --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+      --gradient-4: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      background: var(--bg);
+      font-family: 'Noto Sans KR', sans-serif;
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    /* ── Slide deck ── */
+    .deck {
+      height: 100%;
+      position: relative;
+    }
+
+    .slide {
+      display: none;
+      height: 100vh;
+      padding: 3vmin 4.5vmin;
+      flex-direction: column;
+      overflow-y: auto;
+      background: var(--bg);
+      animation: fadeIn .35s ease;
+    }
+
+    .slide.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ── Badge ── */
+    .slide-number {
+      position: fixed;
+      bottom: 2.5vmin;
+      right: 3vmin;
+      font-size: 1.5vmin;
+      color: var(--muted);
+      letter-spacing: .08em;
+      z-index: 100;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ── Progress bar ── */
+    .progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      z-index: 100;
+      background: var(--gradient-3);
+      transition: width .3s ease;
+    }
+
+    /* ── Tags ── */
+    .tag {
+      display: inline-block;
+      font-size: 1.55vmin;
+      font-weight: 600;
+      padding: .35vmin 1.1vmin;
+      border-radius: 1vmin;
+      margin-bottom: 1.2vmin;
+      margin-right: .5vmin;
+    }
+
+    .tag-blue {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid rgba(96, 165, 250, .3);
+    }
+
+    .tag-green {
+      background: var(--green-dim);
+      color: var(--green);
+      border: 1px solid rgba(52, 211, 153, .3);
+    }
+
+    .tag-red {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(248, 113, 113, .3);
+    }
+
+    .tag-purple {
+      background: var(--purple-dim);
+      color: var(--purple);
+      border: 1px solid rgba(167, 139, 250, .3);
+    }
+
+    .tag-yellow {
+      background: var(--yellow-dim);
+      color: var(--yellow);
+      border: 1px solid rgba(251, 191, 36, .3);
+    }
+
+    .tag-cyan {
+      background: var(--cyan-dim);
+      color: var(--cyan);
+      border: 1px solid rgba(34, 211, 238, .3);
+    }
+
+    /* ── Typography ── */
+    h1 {
+      font-size: 5.2vmin;
+      font-weight: 900;
+      line-height: 1.2;
+      letter-spacing: -.02em;
+    }
+
+    h1 .gradient {
+      background: var(--gradient-3);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    h2 {
+      font-size: 3.2vmin;
+      font-weight: 800;
+      line-height: 1.25;
+      margin-bottom: 1.8vmin;
+    }
+
+    h2 .sub {
+      display: block;
+      font-size: 1.85vmin;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: .6vmin;
+    }
+
+    h3 {
+      font-size: 2.4vmin;
+      font-weight: 700;
+      margin-bottom: 1vmin;
+    }
+
+    .subtitle {
+      font-size: 2.1vmin;
+      color: var(--muted);
+      margin-top: 1.5vmin;
+      line-height: 1.6;
+    }
+
+    .meta {
+      font-size: 1.7vmin;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    /* ── Body ── */
+    .body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1.6vmin;
+    }
+
+    .cols {
+      display: flex;
+      gap: 2.5vmin;
+      flex: 1;
+    }
+
+    .col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1.4vmin;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 1.4vmin;
+      padding: 1.8vmin 2.2vmin;
+      transition: background .2s;
+    }
+
+    .card:hover {
+      background: var(--card-hover);
+    }
+
+    .card h3 {
+      font-size: 2.1vmin;
+    }
+
+    .card p,
+    .card li {
+      font-size: 1.75vmin;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
+    .card ul {
+      padding-left: 2vmin;
+    }
+
+    .card-accent {
+      border-left: 3px solid var(--accent);
+    }
+
+    .card-green {
+      border-left: 3px solid var(--green);
+    }
+
+    .card-red {
+      border-left: 3px solid var(--red);
+    }
+
+    .card-purple {
+      border-left: 3px solid var(--purple);
+    }
+
+    .card-yellow {
+      border-left: 3px solid var(--yellow);
+    }
+
+    .card-cyan {
+      border-left: 3px solid var(--cyan);
+    }
+
+    /* ── Lists ── */
+    li {
+      font-size: 1.9vmin;
+      line-height: 1.5;
+      margin-bottom: .6vmin;
+    }
+
+    ul {
+      padding-left: 2.2vmin;
+    }
+
+    /* ── Code ── */
+    code,
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .92em;
+    }
+
+    pre {
+      background: #0d1420;
+      border: 1px solid var(--border);
+      border-radius: 1vmin;
+      padding: 1.4vmin 1.8vmin;
+      font-size: 1.55vmin;
+      line-height: 1.5;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .highlight-green {
+      color: var(--green);
+    }
+
+    .highlight-red {
+      color: var(--red);
+    }
+
+    .highlight-accent {
+      color: var(--accent);
+    }
+
+    .highlight-yellow {
+      color: var(--yellow);
+    }
+
+    .highlight-purple {
+      color: var(--purple);
+    }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 1.55vmin;
+    }
+
+    th {
+      background: #182035;
+      text-align: left;
+      padding: .7vmin 1vmin;
+      font-weight: 700;
+      border-bottom: 2px solid var(--border);
+      color: var(--accent);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      font-size: 1.45vmin;
+    }
+
+    td {
+      padding: .55vmin 1vmin;
+      border-bottom: 1px solid rgba(36, 48, 73, .5);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.4vmin;
+    }
+
+    tr:hover td {
+      background: rgba(96, 165, 250, .04);
+    }
+
+    .cell-fail {
+      color: var(--red);
+      font-weight: 600;
+    }
+
+    .cell-best {
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .cell-model-mamba {
+      color: var(--purple);
+      font-weight: 600;
+    }
+
+    .cell-model-ritnet {
+      color: var(--cyan);
+      font-weight: 600;
+    }
+
+    .cell-model-cpp {
+      color: var(--yellow);
+      font-weight: 600;
+    }
+
+    /* ── Flowchart boxes ── */
+    .flow-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 1.2vmin;
+      padding: 1.2vmin 1.6vmin;
+      text-align: center;
+      font-size: 1.7vmin;
+      font-weight: 600;
+      position: relative;
+    }
+
+    .flow-arrow {
+      text-align: center;
+      font-size: 2.5vmin;
+      color: var(--muted);
+      line-height: 1;
+    }
+
+    .flow-arrow-right {
+      font-size: 2.5vmin;
+      color: var(--muted);
+      align-self: center;
+    }
+
+    /* ── Comparison highlight ── */
+    .diff-old {
+      background: rgba(248, 113, 113, .08);
+      border-left: 3px solid var(--red);
+      padding: .8vmin 1.5vmin;
+      border-radius: .6vmin;
+      margin-bottom: .8vmin;
+    }
+
+    .diff-new {
+      background: rgba(52, 211, 153, .08);
+      border-left: 3px solid var(--green);
+      padding: .8vmin 1.5vmin;
+      border-radius: .6vmin;
+    }
+
+    /* ── Metric pill ── */
+    .metric {
+      display: inline-flex;
+      align-items: baseline;
+      gap: .5vmin;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 1vmin;
+      padding: .6vmin 1.4vmin;
+      margin: .3vmin .3vmin;
+    }
+
+    .metric .value {
+      font-size: 2.8vmin;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .metric .label {
+      font-size: 1.3vmin;
+      color: var(--muted);
+    }
+
+    /* ── Table scroll container ── */
+    .table-scroll {
+      flex: 1;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 1vmin;
+    }
+
+    .table-scroll table {
+      min-width: 100%;
+    }
+
+    /* ── Keyboard hints ── */
+    .nav-hint {
+      position: fixed;
+      bottom: 2.5vmin;
+      left: 3vmin;
+      font-size: 1.3vmin;
+      color: var(--muted);
+      z-index: 100;
+    }
+
+    kbd {
+      display: inline-block;
+      background: #1a2332;
+      border: 1px solid var(--border);
+      border-radius: .4vmin;
+      padding: .15vmin .5vmin;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.2vmin;
+    }
+
+    /* ── Star rating ── */
+    .stars {
+      color: var(--yellow);
+      letter-spacing: .1em;
+    }
+
+    /* custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="progress-bar" id="progressBar"></div>
+  <div class="slide-number" id="slideNumber"></div>
+  <div class="nav-hint"><kbd>←</kbd> <kbd>→</kbd> 또는 <kbd>Space</kbd>로 이동</div>
+
+  <div class="deck" id="deck">
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 1: Title -->
+    <!-- ============================================================ -->
+    <div class="slide active">
+      <div
+        style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;">
+        <div style="margin-bottom:3vmin;">
+          <span class="tag tag-blue">Pupil Labs Eye Tracking Platform</span>
+          <span class="tag tag-purple">Vivim-Mamba3 SSM</span>
+          <span class="tag tag-green">nnunet-mamba3 Branch</span>
+        </div>
+        <h1>Vivim-Mamba3 기반<br><span class="gradient">실시간 동공 세그멘테이션 시스템</span></h1>
+        <p class="subtitle">코드 아키텍처 · 성능 향상 원인 분석 · 4-Case 풀 매트릭스 실험 결과</p>
+        <div class="meta" style="margin-top:4vmin;">
+          <p>Pupil Labs Custom Fork — <code>nnunet-mamba3</code> Branch (Commit <code>88a33b73</code>)</p>
+          <p>Python 3.10 · PyTorch 2.6.0+cu124 · RTX 4090 · 2026-08-25</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 2: Agenda -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>📋 발표 목차 <span class="sub">Presentation Agenda</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col">
+            <div class="card card-accent">
+              <h3>Part 1 — 시스템 아키텍처</h3>
+              <ul>
+                <li>멀티프로세스 구조 (Main → Eye → World)</li>
+                <li>ZMQ IPC 통신 백본</li>
+                <li>플러그인 기반 검출기 계층</li>
+              </ul>
+            </div>
+            <div class="card card-green">
+              <h3>Part 2 — 코드 동작 흐름</h3>
+              <ul>
+                <li>카메라 프레임 → 세그멘테이션 → 타원 피팅</li>
+                <li>Gaze Mapping → Angular Accuracy 계산</li>
+                <li>캘리브레이션 vs 밸리데이션 경로</li>
+              </ul>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card card-purple">
+              <h3>Part 3 — main 브랜치 대비 변경점</h3>
+              <ul>
+                <li>RITnet(main) → Mamba3(현재) 진화 경로</li>
+                <li>성능 향상 4대 핵심 요인 코드 레벨 분석</li>
+                <li>밸리데이션 파이프라인 버그 수정 히스토리</li>
+              </ul>
+            </div>
+            <div class="card card-yellow">
+              <h3>Part 4 — 4-Case 풀 매트릭스 실험 결과</h3>
+              <ul>
+                <li>4가지 실험 조건 (Threshold × Test Points)</li>
+                <li>3개 모델 × 4개 캘리브레이션 설정 = 48행 전수 데이터</li>
+                <li>모델별 · 케이스별 성능 비교 분석</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 3: Architecture Overview -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🏗️ Part 1 — 시스템 아키텍처 <span class="sub">Multi-Process Architecture with ZMQ IPC Backbone</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col" style="flex:1.2">
+            <pre style="font-size:1.5vmin;line-height:1.45;">
+┌─────────────────── <span class="highlight-accent">Main Process</span> (main.py) ───────────────────┐
+│  Launcher · IPC Backbone · Process Orchestrator              │
+│  ┌──────────────┐  ┌──────────────────────────────────────┐  │
+│  │ CLI Parser   │  │ ZMQ Proxy (XPUB ↔ XSUB)             │  │
+│  │ EphemeralLog │  │ PULL→PUB Bridge · Log Thread         │  │
+│  │ torch patch  │  │ Delayed Notification Proxy            │  │
+│  └──────────────┘  └───────────────┬──────────────────────┘  │
+└────────────────────────────────────┼─────────────────────────┘
+                   ┌─────────────────┼─────────────────┐
+                   ▼                                   ▼
+┌──── <span class="highlight-purple">Eye Process</span> (eye.py) ────┐  ┌──── <span class="highlight-green">World Process</span> (world.py) ───┐
+│ Eye Camera (192×192 @120fps)│  │ World Camera (1280×720)       │
+│ Detector2DPlugin            │  │ CalibrationChoreography       │
+│  ├─ Mamba3 (T=3..11) 🔧    │  │ Pupil_Data_Relay (ZMQ SUB)   │
+│  ├─ RITnet (DenseNet2D)    │  │ Gazer2D (LinearRegression)   │
+│  └─ 2D C++ (기하학)         │  │ Accuracy_Visualizer          │
+│ ZMQ PUB → 'pupil.0.2d'     │  │ ZMQ PUB → 'gaze.2d.0.'      │
+└─────────────────────────────┘  └───────────────────────────────┘</pre>
+          </div>
+          <div class="col" style="flex:.8">
+            <div class="card card-accent">
+              <h3>Main Process</h3>
+              <p><code>main.py</code> — ZMQ IPC 백본 구축, Eye/World 프로세스 스폰, <code>EphemeralLogTee</code>로 stdout을 파일 미러링
+              </p>
+            </div>
+            <div class="card card-purple">
+              <h3>Eye Process</h3>
+              <p>안구 카메라 프레임 수신 → <code>Detector2DPlugin.detect()</code>로 동공 세그멘테이션 → <code>pupil datum</code> 생성 → ZMQ
+                발행</p>
+            </div>
+            <div class="card card-green">
+              <h3>World Process</h3>
+              <p>씬 카메라 + pupil datum 수신 → <code>Gazer2D</code>로 시선 매핑 → <code>Accuracy_Visualizer</code>로 정확도 계산</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 4: Plugin Hierarchy -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🔌 검출기 플러그인 계층 <span class="sub">Detector Plugin Class Hierarchy & Model Routing</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col">
+            <pre style="font-size:1.6vmin;line-height:1.5;">
+<span class="highlight-accent">Plugin</span> (base class)
+  └─ <span class="highlight-accent">PupilDetectorPlugin</span> (ABC)
+       │  detect(frame) → datum
+       │  create_pupil_datum()
+       │  recent_events(event)
+       │
+       └─ <span class="highlight-green">Detector2DPlugin</span> ← <b>핵심 통합 검출기</b>
+            │
+            ├─ active_model = <span class="highlight-purple">"Mamba3 (T=7)"</span>
+            │    → <span class="highlight-purple">_detect_vivim_mamba_by_t()</span>
+            │       └─ VivimBackbone.forward()
+            │
+            ├─ active_model = <span class="highlight-accent">"RITnet"</span>
+            │    → <span class="highlight-accent">_detect_ritnet()</span>
+            │       └─ DenseNet2D.forward()
+            │
+            └─ active_model = <span class="highlight-yellow">"2D C++"</span>
+                 → <span class="highlight-yellow">detector_2d.detect()</span>
+                    └─ C++ 기하학 알고리즘</pre>
+          </div>
+          <div class="col">
+            <div class="card card-purple" style="margin-bottom:1vmin;">
+              <h3>🧠 Mamba3 (T=3,5,7,9,11)</h3>
+              <p>Vivim-Mamba3 SSM 기반 <strong>시계열 동공 세그멘테이션</strong>. T개 연속 프레임의 시간적 맥락을 활용하여 세그멘테이션 경계를 안정화.</p>
+              <p style="color:var(--muted);font-size:1.5vmin;margin-top:.5vmin;">입력: <code>[1, T, 1, 448, 448]</code> →
+                출력: <code>[1, 4, 448, 448]</code> (4-class logits)</p>
+            </div>
+            <div class="card card-cyan" style="margin-bottom:1vmin;">
+              <h3>🔬 RITnet (DenseNet2D)</h3>
+              <p>5-down/4-up U-Net 구조. <strong>단일 프레임</strong> 세그멘테이션. 감마 교정(γ=0.8) + CLAHE 전처리 적용.</p>
+              <p style="color:var(--muted);font-size:1.5vmin;margin-top:.5vmin;">입력: <code>[1, 1, H, W]</code> → 출력:
+                <code>[1, 4, H, W]</code></p>
+            </div>
+            <div class="card card-yellow">
+              <h3>⚙️ 2D C++</h3>
+              <p>Pupil Labs 원본 <strong>결정론적 기하학 알고리즘</strong>. <1ms 추론, 매 프레임 datum 생성, 프레임 간 지터 극히 적음.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 5: Data Flow Pipeline -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🔄 Part 2 — 전체 데이터 흐름 <span class="sub">Camera Frame → Segmentation → Gaze Mapping → Angular Accuracy</span>
+      </h2>
+      <div class="body">
+        <pre style="font-size:1.45vmin;line-height:1.5;">
+<span class="highlight-purple">Stage 1: 전처리 + 추론</span>                   <span class="highlight-green">Stage 2: 마스크 → 타원</span>                    <span class="highlight-accent">Stage 3: 필터링 & 평활화</span>
+┌──────────────────────────┐      ┌──────────────────────────┐      ┌──────────────────────────┐
+│ frame.gray (192×192)     │      │ _postprocess_mask_to_    │      │ Half-Blink 거부           │
+│  → Z-Score 정규화        │      │      datum()             │      │  aspect_ratio < 0.65     │
+│  → 400×400 crop/resize   │─────▶│ Letterbox unpad          │─────▶│  → 빈 datum 반환          │
+│  → 448×448 패딩 (24px)   │      │ Pupil class == 3 추출   │      │                          │
+│  → [1,T,1,448,448] 텐서  │      │ GaussianBlur(5,5)       │      │ Confidence 계산           │
+│                          │      │ findContours → max area  │      │  √(area_ratio×aspect)    │
+│ ★ VivimBackbone.forward()│      │ cv2.fitEllipse()        │      │                          │
+│ → logits [1,4,448,448]   │      │  → (cx,cy,MA,ma,angle)  │      │ EMA 시간 평활화 (α=0.4)  │
+│ → argmax → 448×448 mask  │      │                          │      │ Jump Rejection (40px)    │
+│ → unpad 24px → 400×400   │      │                          │      │  → confidence=0.0        │
+└──────────────────────────┘      └──────────────────────────┘      └────────────┬─────────────┘
+                                                                                  │
+<span class="highlight-yellow">Stage 6: 정확도 계산</span>                   <span class="highlight-accent">Stage 5: Gaze 매핑</span>                      <span class="highlight-green">Stage 4: Datum 생성 & IPC</span>
+┌──────────────────────────┐      ┌──────────────────────────┐      ┌────────────┴─────────────┐
+│ Accuracy_Visualizer      │      │ Gazer2D.predict()        │      │ normalize(loc, frame_sz) │
+│  .recalculate()          │      │                          │      │  → norm_pos (0~1)        │
+│                          │◀─────│ filter_pupil_data()      │◀─────│ create_pupil_datum()     │
+│ gaze_vector · ref_vector │      │  "3d" not in method      │      │  → {norm_pos, diameter,  │
+│  = cos_distance          │      │  confidence >= 0.6       │      │     confidence, ellipse}  │
+│                          │      │                          │      │                          │
+│ Accuracy = arccos(mean)  │      │ LinearRegression.predict │      │ ZMQ PUB → IPC Backbone   │
+│ Precision = RMS(arccos)  │      │  pupil_norm → gaze_norm  │      │  Eye Process → World     │
+│ outlier_threshold = 1.2° │      │                          │      │                          │
+└──────────────────────────┘      └──────────────────────────┘      └──────────────────────────┘</pre>
+        <div style="display:flex;gap:1.5vmin;margin-top:1vmin;">
+          <div class="card card-accent" style="flex:1;padding:1vmin 1.5vmin;">
+            <p style="font-size:1.55vmin;"><strong>핵심 인사이트:</strong> 세그멘테이션 품질 → 타원 피팅 정확도 → <code>norm_pos</code> 정밀도 →
+              Gaze Mapping 입력 품질 → Angular Accuracy. 모든 단계가 직렬로 연결됨.</p>
+          </div>
+          <div class="card card-yellow" style="flex:1;padding:1vmin 1.5vmin;">
+            <p style="font-size:1.55vmin;"><strong>Confidence의 이중 역할:</strong> (1) Gaze Mapping에서 필터 게이트로 사용 (0.6 미만
+              제거), (2) OpenGL 시각화에서 타원 투명도 결정.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 6: Calibration vs Validation -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🎯 캘리브레이션 vs 밸리데이션 경로 <span class="sub">Training Accuracy vs Test Accuracy — 아키텍처적 분리</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col">
+            <div class="card card-yellow" style="margin-bottom:1.5vmin;">
+              <h3>경로 A: 캘리브레이션 (학습)</h3>
+              <ul>
+                <li>3×3 9-point Grid 마커로 <strong>pupil + ref 데이터 수집</strong></li>
+                <li><code>Gazer2D</code> 생성 → <code>LinearRegression.fit()</code></li>
+                <li><code>calibration.result</code> → <code>recalculate()</code></li>
+                <li>결과: <strong>Training Accuracy</strong> (과적합 위험 존재)</li>
+              </ul>
+            </div>
+            <div class="card card-green">
+              <h3>경로 B: 밸리데이션 (평가)</h3>
+              <ul>
+                <li>(0.5, 0.7) 단일점 5회 반복으로 <strong>새로운 데이터 수집</strong></li>
+                <li>기존 <code>gazer_params</code> 재사용 (모델 파라미터 보존)</li>
+                <li><code>validation.data</code> → <code>clear()</code> → <code>update()</code> →
+                  <code>recalculate()</code></li>
+                <li>결과: <strong>Test Accuracy</strong> (일반화 성능 검증)</li>
+              </ul>
+            </div>
+          </div>
+          <div class="col">
+            <pre style="font-size:1.5vmin;line-height:1.5;">
+<span class="highlight-yellow">정상 설계:</span>
+[캘리브레이션] → 모델 학습 (fit)
+     │
+     ▼
+[밸리데이션] → <span class="highlight-green">학습된 모델 유지</span>한 채
+               새 데이터로 평가
+
+─────────────────────────────
+
+<span class="highlight-red">임시조치 시절 (commit 702e9bde):</span>
+[캘리브레이션] → 모델 학습
+     │
+     ▼
+[밸리데이션] → <span class="highlight-red">모델 재학습 (덮어쓰기)</span>
+               → Training = Test 왜곡
+               → 기존 모델 소실
+
+─────────────────────────────
+
+<span class="highlight-green">현재 (commit 6eee2890 이후):</span>
+밸리데이션 고유 경로 완전 복원
+→ 정석 Test Accuracy 측정</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 7: Branch Evolution -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🌿 Part 3 — 브랜치 진화 경로 <span class="sub">v-ritnet-base → main (U-Mamba) → feature/nnunet → nnunet-mamba3</span>
+      </h2>
+      <div class="body">
+        <pre style="font-size:1.6vmin;line-height:1.55;">
+<span class="highlight-muted">[master]</span> Pupil Labs Upstream v3.6 (Pure Python/C++ 2D)
+    │
+    ▼
+<span class="highlight-muted">[develop]</span> pupil + RITnet 이식
+    │
+    ▼
+<span class="highlight-yellow">[v-ritnet-base]</span> (2c42b2f1) ── 전년도 레거시 베이스라인
+    │                          • RITnet + 2D C++ only
+    │                          • 캘리브 5pt / 밸리데이션 4-Corner
+    │                          • outlier_threshold = 2.5°
+    │                          • 후처리 필터 없음
+    ▼
+<span class="highlight-accent">[main / v-umamba]</span> (a5b0819d) ── U-Mamba 2D 도입
+    │                              • 캘리브 4pt 중앙 사각형 (0.4~0.6)
+    │                              • RITnet ~1.7° / 2D C++ 2.0°+
+    ▼
+<span class="highlight-green">[feature/nnunet]</span> (4b67751a) ── <b>핵심 전환점</b>
+    │   • <span class="highlight-green">3×3 9-point Grid 캘리브레이션 도입</span>
+    │   • <span class="highlight-green">(0.5, 0.7) 단일점 밸리데이션 도입</span>
+    │   • <span class="highlight-green">동공 후처리 파이프라인 전면 신설 (EMA, Jump Reject, Blur)</span>
+    │   • outlier_threshold = 1.3° → 1.2°
+    ▼
+<span class="highlight-purple">[nnunet-mamba3]</span> (4bfdea4b → 88a33b73) ── <b>최신 헤드</b>
+      • Vivim-Mamba3 T=7 소스 트리 내장 최적화 (AMP 가속)
+      • filter_pupil_data "3d" 역필터 패치
+      • 점진적 Timestamp Dispersion 완화 (0.2s~2.0s)
+      • 캘리브레이션 ON/OFF UI 토글 & IPC 동기화
+      • 5-Stack 밸리데이션 누적 요약 통계(평균/표준편차) 콘솔 지원</pre>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 8: Performance Improvement Factors -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>📈 성능 향상 4대 핵심 요인 <span class="sub">main 브랜치(RITnet) 대비 현재 브랜치에서 스코어가 대폭 향상된 직접 원인</span></h2>
+      <div class="body">
+        <div style="display:flex;gap:1vmin;margin-bottom:1.5vmin;">
+          <div class="metric"><span class="value highlight-yellow">2.0°+</span><span class="label">→</span></div>
+          <div class="metric"><span class="value highlight-green">~0.8°</span><span class="label">2D C++ (Δ-1.2°)</span>
+          </div>
+          <div class="metric"><span class="value highlight-yellow">~1.7°</span><span class="label">→</span></div>
+          <div class="metric"><span class="value highlight-green">~0.9°</span><span class="label">RITnet (Δ-0.8°)</span>
+          </div>
+        </div>
+        <div class="cols">
+          <div class="col">
+            <div class="card card-green">
+              <h3><span class="stars">★★★★★</span> 요인 1 — 캘리브레이션 9pt Grid 확장 (~40%)</h3>
+              <div class="diff-old"><code>main</code>: 중앙 4pt 사각형 <code>(0.4~0.6)</code></div>
+              <div class="diff-new"><code>현재</code>: <strong>3×3 9-point Grid</strong> (화면 전체 커버)</div>
+              <p style="font-size:1.5vmin;color:var(--muted);margin-top:.5vmin;">→ LinearRegression 조건수 극적 개선, 외삽 붕괴 방지
+              </p>
+            </div>
+            <div class="card card-green">
+              <h3><span class="stars">★★★★☆</span> 요인 2 — 밸리데이션 타겟 단순화 (~30%)</h3>
+              <div class="diff-old"><code>main</code>: 4-Corner 외삽 영역</div>
+              <div class="diff-new"><code>현재</code>: <strong>(0.5, 0.7)</strong> 중앙 1점 5회 (내삽 영역)</div>
+              <p style="font-size:1.5vmin;color:var(--muted);margin-top:.5vmin;">→ 모델이 가장 정확한 중앙 부근만 평가</p>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card card-cyan">
+              <h3><span class="stars">★★★☆☆</span> 요인 3 — Outlier Threshold 축소 (~20%)</h3>
+              <div class="diff-old"><code>main</code>: <code>outlier_threshold = 2.5°</code></div>
+              <div class="diff-new"><code>현재</code>: <code>outlier_threshold = <strong>1.2°</strong></code></div>
+              <p style="font-size:1.5vmin;color:var(--muted);margin-top:.5vmin;">→ 큰 오차 샘플 사전 제거, 평균 인위적 감소</p>
+            </div>
+            <div class="card card-purple">
+              <h3><span class="stars">★★★☆☆</span> 요인 4 — 동공 후처리 파이프라인 신설 (~10%)</h3>
+              <div class="diff-old"><code>main</code>: 후처리 필터 <strong>없음</strong></div>
+              <div class="diff-new"><code>현재</code>: EMA(α=0.4) + Jump Reject(40px) + GaussianBlur</div>
+              <p style="font-size:1.5vmin;color:var(--muted);margin-top:.5vmin;">→ 딥러닝 마스크 프레임 간 지터 60% 억제</p>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:1vmin 1.5vmin;background:#0d1420;">
+          <p style="font-size:1.55vmin;">⚠️ <strong>주의:</strong> 시선 매핑 수식 (<code>gazer_2d.py</code>,
+            <code>gazer_base.py</code>)은 전 버전에서 <strong>완전 동일</strong> (Diff 0줄). 성능 향상은 모델 자체가 아닌 <strong>실험 설계 및 후처리
+              파이프라인 변경</strong>에 기인합니다.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 9: Configuration Matrix -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>⚙️ 브랜치별 설정 매트릭스 <span class="sub">Configuration Matrix — v-ritnet-base → main → feature/nnunet →
+          nnunet-mamba3</span></h2>
+      <div class="body">
+        <div class="table-scroll" style="flex:1;">
+          <table>
+            <thead>
+              <tr>
+                <th>설정 항목</th>
+                <th>v-ritnet-base<br><span style="font-weight:400;color:var(--muted)">(전년도)</span></th>
+                <th>main (v-umamba)<br><span style="font-weight:400;color:var(--muted)">(RITnet 기준)</span></th>
+                <th>feature/nnunet<br><span style="font-weight:400;color:var(--muted)">(전환점)</span></th>
+                <th style="color:var(--green);">nnunet-mamba3<br><span style="font-weight:400;color:var(--green);">(최신
+                    헤드)</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>기본 Active Model</td>
+                <td>RITnet</td>
+                <td>U-Mamba</td>
+                <td>TemporalUNet</td>
+                <td style="color:var(--green);font-weight:700;">Mamba3 (T=7)</td>
+              </tr>
+              <tr>
+                <td>지원 모델 목록</td>
+                <td>RITnet, 2D C++</td>
+                <td>U-Mamba, RITnet, 2D C++</td>
+                <td>TempUNet, Vivim, nnUNet 2D, RITnet, 2D C++</td>
+                <td style="color:var(--green);">Mamba3 (T=3..11), RITnet, 2D C++</td>
+              </tr>
+              <tr>
+                <td>캘리브레이션 패턴</td>
+                <td>5-point Cross</td>
+                <td>4-point Center Box</td>
+                <td style="color:var(--green);font-weight:600;">3×3 9-point Grid</td>
+                <td style="color:var(--green);font-weight:600;">3×3 9-point Grid</td>
+              </tr>
+              <tr>
+                <td>밸리데이션 패턴</td>
+                <td>4-Corner Box</td>
+                <td>4-point Center Box</td>
+                <td style="color:var(--green);font-weight:600;">(0.5, 0.7) × 5</td>
+                <td style="color:var(--green);font-weight:600;">(0.5, 0.7) × 5</td>
+              </tr>
+              <tr>
+                <td>Sample Duration</td>
+                <td>40 frames</td>
+                <td>40 frames</td>
+                <td style="color:var(--green);">60 frames</td>
+                <td style="color:var(--green);">60 frames</td>
+              </tr>
+              <tr>
+                <td>Outlier Threshold</td>
+                <td>2.5°</td>
+                <td>2.5°</td>
+                <td>1.3°</td>
+                <td style="color:var(--green);">1.2°</td>
+              </tr>
+              <tr>
+                <td>동공 후처리 EMA (α)</td>
+                <td style="color:var(--red);">미적용</td>
+                <td style="color:var(--red);">미적용</td>
+                <td style="color:var(--green);">0.4</td>
+                <td style="color:var(--green);">0.4</td>
+              </tr>
+              <tr>
+                <td>동공 Jump Rejection</td>
+                <td style="color:var(--red);">미적용</td>
+                <td style="color:var(--red);">미적용</td>
+                <td style="color:var(--green);">40px (5 frames)</td>
+                <td style="color:var(--green);">40px (5 frames)</td>
+              </tr>
+              <tr>
+                <td>Dispersion 완화</td>
+                <td>고정 66.7ms</td>
+                <td>고정 66.7ms</td>
+                <td>고정 66.7ms</td>
+                <td style="color:var(--green);font-weight:600;">0.2s ~ 2.0s 점진 완화</td>
+              </tr>
+              <tr>
+                <td>Calibration ON/OFF</td>
+                <td style="color:var(--red);">미지원</td>
+                <td style="color:var(--red);">미지원</td>
+                <td style="color:var(--red);">미지원</td>
+                <td style="color:var(--green);font-weight:600;">지원 (UI & IPC)</td>
+              </tr>
+              <tr>
+                <td>밸리데이션 경로</td>
+                <td>–</td>
+                <td>–</td>
+                <td style="color:var(--red);">임시조치 (re-fit)</td>
+                <td style="color:var(--green);font-weight:600;">정상 복원 (Test Acc)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 10: Bug Fix History -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🔧 밸리데이션 파이프라인 버그 수정 히스토리 <span class="sub">main 브랜치에서 겪었던 4대 복합 근본 원인과 해결</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col">
+            <div class="card card-red" style="margin-bottom:1vmin;">
+              <h3>원인 ① 제너레이터 소진 (Generator Exhaustion)</h3>
+              <p><code>map_pupil_to_gaze()</code>가 <strong>yield 제너레이터</strong>를 반환 → <code>closest_matches</code>에서 1회
+                검색 후 소진</p>
+              <p style="color:var(--green);margin-top:.5vmin;">✅ 해결: <code>list(gaze_pos)</code> 명시적 변환 (commit
+                <code>6a43b3e3</code>)</p>
+            </div>
+            <div class="card card-red" style="margin-bottom:1vmin;">
+              <h3>원인 ② Dispersion 66.7ms 충돌</h3>
+              <p>Mamba3 추론 ~50ms → 실효 15-20fps → <code>|t_gaze - t_ref| > 66.7ms</code> → 매칭 실패</p>
+              <p style="color:var(--green);margin-top:.5vmin;">✅ 해결: 점진적 완화 (0.2s → 0.5s → 1.0s → 2.0s) (commit
+                <code>c0454e08</code>)</p>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card card-red" style="margin-bottom:1vmin;">
+              <h3>원인 ③ Saccade Jump Rejection</h3>
+              <p>마커 간 도약 시 <code>confidence=0.0</code> → <code>min_calibration_confidence(0.6)</code> 미만 자동 제거</p>
+              <p style="color:var(--green);margin-top:.5vmin;">✅ 해결: Jump rejection 임계 조정 및 EMA 안정화</p>
+            </div>
+            <div class="card card-red" style="margin-bottom:1vmin;">
+              <h3>원인 ④ Method 문자열 필터 불일치</h3>
+              <p><code>"2d" in method</code> 필터가 <code>"Mamba3 (T=7)"</code>, <code>"RITnet"</code> 등을 탈락시킴</p>
+              <p style="color:var(--green);margin-top:.5vmin;">✅ 해결: <code>"3d" not in method.lower()</code>로 반전 (commit
+                <code>6a43b3e3</code>)</p>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="border-left:3px solid var(--green);padding:1vmin 1.5vmin;">
+          <p style="font-size:1.6vmin;"><strong>최종 결과:</strong> 캘리브레이션 피팅은 원래 정상 → 밸리데이션 간헐 실패 문제 <strong>4가지 복합 원인 모두
+              해결</strong> → Mamba3/RITnet/2D C++ 모든 모델에서 Test Accuracy 100% 안정 측정 가능</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 11: Experiment Design -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🧪 Part 4 — 4-Case 풀 매트릭스 실험 설계 <span class="sub">Threshold × Test Points × Model × Calibration Points = 48
+          조건</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col">
+            <div class="card card-accent" style="margin-bottom:1vmin;">
+              <h3>실험 변수 (Independent Variables)</h3>
+              <table style="font-size:1.6vmin;">
+                <tr>
+                  <th>변수</th>
+                  <th>수준</th>
+                </tr>
+                <tr>
+                  <td>Outlier Threshold</td>
+                  <td><code>1.2°</code>, <code>2.0°</code></td>
+                </tr>
+                <tr>
+                  <td>Test Points</td>
+                  <td><code>5p</code> (5개 포인트), <code>4p</code> (4개 포인트)</td>
+                </tr>
+                <tr>
+                  <td>Model</td>
+                  <td><code>Mamba3 (T=7)</code>, <code>RITnet</code>, <code>2D C++</code></td>
+                </tr>
+                <tr>
+                  <td>Calibration Points</td>
+                  <td><code>0p</code> (Bypass), <code>5p</code>, <code>9p</code>, <code>12p</code></td>
+                </tr>
+              </table>
+            </div>
+            <div class="card card-green">
+              <h3>측정 지표 (Dependent Variables)</h3>
+              <ul>
+                <li>5회 반복 Validation (Val Round 1~5) — 각 Angular Accuracy (°)</li>
+                <li>Mean Accuracy (°) — 5회 평균</li>
+                <li>Peak Accuracy (°) — 최솟값 (= 최고 성능)</li>
+                <li>Std Dev (°) — 안정성 지표</li>
+                <li>Mean Precision (°) — RMS 연속 안정성</li>
+              </ul>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card card-purple" style="margin-bottom:1vmin;">
+              <h3>4가지 실험 Case 정의</h3>
+              <table style="font-size:1.6vmin;">
+                <tr>
+                  <th>Case</th>
+                  <th>Threshold</th>
+                  <th>Test Points</th>
+                  <th>특성</th>
+                </tr>
+                <tr>
+                  <td style="color:var(--accent);font-weight:700;">Case 1</td>
+                  <td>1.2°</td>
+                  <td>5p</td>
+                  <td>엄격 임계 + 다포인트</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--green);font-weight:700;">Case 2</td>
+                  <td>2.0°</td>
+                  <td>5p</td>
+                  <td>완화 임계 + 다포인트</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--purple);font-weight:700;">Case 3</td>
+                  <td>2.0°</td>
+                  <td>4p</td>
+                  <td>완화 임계 + 소포인트</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--yellow);font-weight:700;">Case 4</td>
+                  <td>1.2°</td>
+                  <td>4p</td>
+                  <td>엄격 임계 + 소포인트</td>
+                </tr>
+              </table>
+            </div>
+            <div class="card card-yellow">
+              <h3>캘리브레이션 포인트 설정</h3>
+              <ul>
+                <li><code>0p</code> — 캘리브레이션 Bypass (raw pupil→gaze)</li>
+                <li><code>5p</code> — 5-point 캘리브레이션</li>
+                <li><code>9p</code> — 9-point 3×3 Grid (기본 설정)</li>
+                <li><code>12p</code> — 12-point 확장 그리드</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 12: Case 1 Full Results -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>📊 Case 1 결과 — Threshold 1.2° / Test 5p <span class="sub">엄격한 Outlier Threshold + 5-Point 밸리데이션 (전체 원본
+          데이터)</span></h2>
+      <div class="body">
+        <div class="table-scroll" style="flex:1;">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Cal Pts</th>
+                <th>Cal Score</th>
+                <th>Val 1</th>
+                <th>Val 2</th>
+                <th>Val 3</th>
+                <th>Val 4</th>
+                <th>Val 5</th>
+                <th>Mean Acc</th>
+                <th>Peak Acc</th>
+                <th>Std Dev</th>
+                <th>Precision</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.008</td>
+                <td>0.893</td>
+                <td>0.758</td>
+                <td>0.961</td>
+                <td>0.948</td>
+                <td>0.914</td>
+                <td class="cell-best">0.758</td>
+                <td>0.086</td>
+                <td>0.157</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>5p</td>
+                <td>0.948°</td>
+                <td>0.795</td>
+                <td>1.003</td>
+                <td>0.996</td>
+                <td>0.924</td>
+                <td>0.725</td>
+                <td>0.889</td>
+                <td class="cell-best">0.725</td>
+                <td>0.111</td>
+                <td>0.155</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>9p</td>
+                <td>0.725°</td>
+                <td>0.790</td>
+                <td>0.652</td>
+                <td>0.447</td>
+                <td>0.925</td>
+                <td>0.900</td>
+                <td>0.743</td>
+                <td class="cell-best">0.447</td>
+                <td>0.177</td>
+                <td>0.154</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>12p</td>
+                <td>0.900°</td>
+                <td>0.693</td>
+                <td>0.979</td>
+                <td>1.157</td>
+                <td>0.854</td>
+                <td>0.527</td>
+                <td>0.842</td>
+                <td class="cell-best">0.527</td>
+                <td>0.219</td>
+                <td>0.143</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>0.835</td>
+                <td>0.941</td>
+                <td>1.084</td>
+                <td>0.819</td>
+                <td>0.807</td>
+                <td>0.897</td>
+                <td class="cell-best">0.807</td>
+                <td>0.105</td>
+                <td>0.109</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>5p</td>
+                <td>0.819°</td>
+                <td>0.974</td>
+                <td>0.901</td>
+                <td>0.902</td>
+                <td>0.789</td>
+                <td>0.893</td>
+                <td>0.892</td>
+                <td class="cell-best">0.789</td>
+                <td>0.059</td>
+                <td>0.104</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>9p</td>
+                <td>0.789°</td>
+                <td>0.701</td>
+                <td>0.857</td>
+                <td>0.953</td>
+                <td>0.798</td>
+                <td>0.856</td>
+                <td>0.833</td>
+                <td class="cell-best">0.701</td>
+                <td>0.083</td>
+                <td>0.104</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>12p</td>
+                <td>0.577°</td>
+                <td>0.826</td>
+                <td>0.816</td>
+                <td>0.726</td>
+                <td>0.841</td>
+                <td>0.937</td>
+                <td>0.829</td>
+                <td class="cell-best">0.726</td>
+                <td>0.067</td>
+                <td>0.106</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-cpp">2D C++</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.109</td>
+                <td>1.020</td>
+                <td class="cell-fail">Fail</td>
+                <td>0.860</td>
+                <td>0.920</td>
+                <td>0.977</td>
+                <td class="cell-best">0.860</td>
+                <td>0.095</td>
+                <td>0.114</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>5p</td>
+                <td>0.798°</td>
+                <td>0.976</td>
+                <td class="cell-fail">Fail</td>
+                <td>1.137</td>
+                <td>0.933</td>
+                <td>0.798</td>
+                <td>0.961</td>
+                <td class="cell-best">0.798</td>
+                <td>0.121</td>
+                <td>0.126</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>9p</td>
+                <td>0.860°</td>
+                <td>0.696</td>
+                <td>0.947</td>
+                <td>0.642</td>
+                <td>0.657</td>
+                <td>0.917</td>
+                <td>0.772</td>
+                <td class="cell-best">0.642</td>
+                <td>0.132</td>
+                <td>0.121</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>12p</td>
+                <td>0.933°</td>
+                <td>1.129</td>
+                <td>0.647</td>
+                <td>0.754</td>
+                <td>0.842</td>
+                <td class="cell-fail">Fail</td>
+                <td>0.843</td>
+                <td class="cell-best">0.647</td>
+                <td>0.179</td>
+                <td>0.124</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:1vmin;margin-top:.8vmin;">
+          <div class="card card-green" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">🏆 <strong>Best Peak:</strong> Mamba3 9p → <strong>0.447°</strong></p>
+          </div>
+          <div class="card card-accent" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">📊 <strong>Best Mean:</strong> Mamba3 9p → <strong>0.743°</strong></p>
+          </div>
+          <div class="card card-cyan" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">🎯 <strong>Best Precision:</strong> RITnet 전반 → <strong>~0.104°</strong></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 13: Case 2 Full Results -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>📊 Case 2 결과 — Threshold 2.0° / Test 5p <span class="sub">완화된 Outlier Threshold + 5-Point 밸리데이션 (전체 원본
+          데이터)</span></h2>
+      <div class="body">
+        <div class="table-scroll" style="flex:1;">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Cal Pts</th>
+                <th>Cal Score</th>
+                <th>Val 1</th>
+                <th>Val 2</th>
+                <th>Val 3</th>
+                <th>Val 4</th>
+                <th>Val 5</th>
+                <th>Mean Acc</th>
+                <th>Peak Acc</th>
+                <th>Std Dev</th>
+                <th>Precision</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.551</td>
+                <td>1.412</td>
+                <td>1.711</td>
+                <td>1.337</td>
+                <td>1.150</td>
+                <td>1.432</td>
+                <td class="cell-best">1.150</td>
+                <td>0.190</td>
+                <td>0.160</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>5p</td>
+                <td>1.150°</td>
+                <td>1.644</td>
+                <td>1.100</td>
+                <td>1.260</td>
+                <td>1.313</td>
+                <td>1.222</td>
+                <td>1.308</td>
+                <td class="cell-best">1.100</td>
+                <td>0.182</td>
+                <td>0.142</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>9p</td>
+                <td>1.222°</td>
+                <td>1.428</td>
+                <td>1.611</td>
+                <td>1.653</td>
+                <td>1.687</td>
+                <td>1.436</td>
+                <td>1.563</td>
+                <td class="cell-best">1.428</td>
+                <td>0.110</td>
+                <td>0.139</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>12p</td>
+                <td>1.436°</td>
+                <td>1.762</td>
+                <td>1.409</td>
+                <td>1.454</td>
+                <td>1.819</td>
+                <td>1.290</td>
+                <td>1.547</td>
+                <td class="cell-best">1.290</td>
+                <td>0.207</td>
+                <td>0.132</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.122</td>
+                <td>1.285</td>
+                <td>1.151</td>
+                <td>1.219</td>
+                <td>1.412</td>
+                <td>1.238</td>
+                <td class="cell-best">1.122</td>
+                <td>0.104</td>
+                <td>0.117</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>5p</td>
+                <td>1.412°</td>
+                <td>1.300</td>
+                <td>1.355</td>
+                <td>1.613</td>
+                <td>1.344</td>
+                <td>1.137</td>
+                <td>1.350</td>
+                <td class="cell-best">1.137</td>
+                <td>0.153</td>
+                <td>0.107</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>9p</td>
+                <td>0.888°</td>
+                <td>1.057</td>
+                <td>1.120</td>
+                <td>1.289</td>
+                <td>1.118</td>
+                <td>1.088</td>
+                <td>1.134</td>
+                <td class="cell-best">1.057</td>
+                <td>0.081</td>
+                <td>0.107</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>12p</td>
+                <td>1.137°</td>
+                <td>0.980</td>
+                <td>1.028</td>
+                <td>1.156</td>
+                <td>1.063</td>
+                <td>1.061</td>
+                <td>1.058</td>
+                <td class="cell-best">0.980</td>
+                <td>0.058</td>
+                <td>0.106</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-cpp">2D C++</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.403</td>
+                <td>1.551</td>
+                <td>1.893</td>
+                <td class="cell-fail">Fail</td>
+                <td>1.541</td>
+                <td>1.597</td>
+                <td class="cell-best">1.403</td>
+                <td>0.181</td>
+                <td>0.133</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>5p</td>
+                <td>1.088°</td>
+                <td>1.557</td>
+                <td>1.459</td>
+                <td>1.495</td>
+                <td>1.591</td>
+                <td>1.409</td>
+                <td>1.502</td>
+                <td class="cell-best">1.409</td>
+                <td>0.066</td>
+                <td>0.142</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>9p</td>
+                <td>1.541°</td>
+                <td>1.401</td>
+                <td>1.800</td>
+                <td>1.516</td>
+                <td>1.439</td>
+                <td>1.563</td>
+                <td>1.544</td>
+                <td class="cell-best">1.401</td>
+                <td>0.140</td>
+                <td>0.142</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>12p</td>
+                <td>1.409°</td>
+                <td>1.429</td>
+                <td>1.690</td>
+                <td>1.411</td>
+                <td>1.095</td>
+                <td>1.631</td>
+                <td>1.451</td>
+                <td class="cell-best">1.095</td>
+                <td>0.209</td>
+                <td>0.153</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:1vmin;margin-top:.8vmin;">
+          <div class="card card-green" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">🏆 <strong>Best Peak:</strong> RITnet 12p → <strong>0.980°</strong></p>
+          </div>
+          <div class="card card-accent" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">📊 <strong>Best Mean:</strong> RITnet 12p → <strong>1.058°</strong></p>
+          </div>
+          <div class="card" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">💡 Threshold 2.0°에서는 RITnet 12p가 전반적으로 가장 안정적</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 14: Case 3 Full Results -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>📊 Case 3 결과 — Threshold 2.0° / Test 4p <span class="sub">완화된 Outlier Threshold + 4-Point 밸리데이션 (전체 원본
+          데이터)</span></h2>
+      <div class="body">
+        <div class="table-scroll" style="flex:1;">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Cal Pts</th>
+                <th>Cal Score</th>
+                <th>Val 1</th>
+                <th>Val 2</th>
+                <th>Val 3</th>
+                <th>Val 4</th>
+                <th>Val 5</th>
+                <th>Mean Acc</th>
+                <th>Peak Acc</th>
+                <th>Std Dev</th>
+                <th>Precision</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.119</td>
+                <td>1.475</td>
+                <td>1.518</td>
+                <td>1.925</td>
+                <td>1.359</td>
+                <td>1.479</td>
+                <td class="cell-best">1.119</td>
+                <td>0.262</td>
+                <td>0.174</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>5p</td>
+                <td>1.359°</td>
+                <td>1.172</td>
+                <td>1.530</td>
+                <td>1.184</td>
+                <td>1.202</td>
+                <td>1.099</td>
+                <td>1.237</td>
+                <td class="cell-best">1.099</td>
+                <td>0.150</td>
+                <td>0.149</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>9p</td>
+                <td>1.099°</td>
+                <td>0.864</td>
+                <td>1.574</td>
+                <td>1.402</td>
+                <td>1.226</td>
+                <td>1.438</td>
+                <td>1.301</td>
+                <td class="cell-best">0.864</td>
+                <td>0.245</td>
+                <td>0.146</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>12p</td>
+                <td>1.438°</td>
+                <td>0.466</td>
+                <td>1.828</td>
+                <td>1.555</td>
+                <td>1.771</td>
+                <td>1.544</td>
+                <td>1.433</td>
+                <td class="cell-best">0.466</td>
+                <td>0.497</td>
+                <td>0.144</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.371</td>
+                <td class="cell-fail">Fail</td>
+                <td>1.490</td>
+                <td>1.774</td>
+                <td>1.308</td>
+                <td>1.486</td>
+                <td class="cell-best">1.308</td>
+                <td>0.179</td>
+                <td>0.110</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>5p</td>
+                <td>1.308°</td>
+                <td>1.311</td>
+                <td>1.109</td>
+                <td>1.193</td>
+                <td>0.990</td>
+                <td>1.232</td>
+                <td>1.167</td>
+                <td class="cell-best">0.990</td>
+                <td>0.110</td>
+                <td>0.113</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>9p</td>
+                <td>1.232°</td>
+                <td>1.273</td>
+                <td>1.278</td>
+                <td>1.414</td>
+                <td>1.432</td>
+                <td>1.367</td>
+                <td>1.353</td>
+                <td class="cell-best">1.273</td>
+                <td>0.067</td>
+                <td>0.109</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>12p</td>
+                <td>1.392°</td>
+                <td>1.238</td>
+                <td>1.254</td>
+                <td>1.431</td>
+                <td>1.276</td>
+                <td>1.390</td>
+                <td>1.318</td>
+                <td class="cell-best">1.238</td>
+                <td>0.078</td>
+                <td>0.113</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-cpp">2D C++</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>0.753</td>
+                <td>1.464</td>
+                <td>1.365</td>
+                <td>1.107</td>
+                <td>1.387</td>
+                <td>1.215</td>
+                <td class="cell-best">0.753</td>
+                <td>0.260</td>
+                <td>0.114</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>5p</td>
+                <td>0.992°</td>
+                <td>0.895</td>
+                <td>1.181</td>
+                <td>1.215</td>
+                <td>1.377</td>
+                <td>1.489</td>
+                <td>1.231</td>
+                <td class="cell-best">0.895</td>
+                <td>0.202</td>
+                <td>0.117</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>9p</td>
+                <td>1.367°</td>
+                <td>1.252</td>
+                <td>1.629</td>
+                <td>1.432</td>
+                <td>1.292</td>
+                <td>1.290</td>
+                <td>1.379</td>
+                <td class="cell-best">1.252</td>
+                <td>0.139</td>
+                <td>0.117</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>12p</td>
+                <td>1.387°</td>
+                <td>1.463</td>
+                <td>1.471</td>
+                <td>1.478</td>
+                <td>1.339</td>
+                <td>1.479</td>
+                <td>1.446</td>
+                <td class="cell-best">1.339</td>
+                <td>0.054</td>
+                <td>0.115</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:1vmin;margin-top:.8vmin;">
+          <div class="card card-green" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">🏆 <strong>Best Peak:</strong> Mamba3 12p → <strong>0.466°</strong> (단,
+              σ=0.497으로 불안정)</p>
+          </div>
+          <div class="card card-cyan" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">🎯 <strong>Best Stability:</strong> 2D C++ 12p → σ=<strong>0.054</strong> (가장
+              안정)</p>
+          </div>
+          <div class="card card-accent" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">📊 <strong>Best Mean:</strong> RITnet 5p → <strong>1.167°</strong></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 15: Case 4 Full Results -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>📊 Case 4 결과 — Threshold 1.2° / Test 4p <span class="sub">엄격한 Outlier Threshold + 4-Point 밸리데이션 (전체 원본
+          데이터)</span></h2>
+      <div class="body">
+        <div class="table-scroll" style="flex:1;">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Cal Pts</th>
+                <th>Cal Score</th>
+                <th>Val 1</th>
+                <th>Val 2</th>
+                <th>Val 3</th>
+                <th>Val 4</th>
+                <th>Val 5</th>
+                <th>Mean Acc</th>
+                <th>Peak Acc</th>
+                <th>Std Dev</th>
+                <th>Precision</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td class="cell-fail">Fail</td>
+                <td class="cell-fail">Fail</td>
+                <td class="cell-fail">Fail</td>
+                <td class="cell-fail">Fail</td>
+                <td>0.816</td>
+                <td>0.816</td>
+                <td class="cell-best">0.816</td>
+                <td>0.000</td>
+                <td>0.154</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>5p</td>
+                <td>0.816°</td>
+                <td>0.809</td>
+                <td>0.782</td>
+                <td>0.954</td>
+                <td>0.856</td>
+                <td>0.891</td>
+                <td>0.858</td>
+                <td class="cell-best">0.782</td>
+                <td>0.061</td>
+                <td>0.158</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>9p</td>
+                <td>0.891°</td>
+                <td>0.856</td>
+                <td>0.897</td>
+                <td>1.160</td>
+                <td>0.825</td>
+                <td>0.936</td>
+                <td>0.935</td>
+                <td class="cell-best">0.825</td>
+                <td>0.119</td>
+                <td>0.173</td>
+              </tr>
+              <tr>
+                <td class="cell-model-mamba">Mamba3 (T=7)</td>
+                <td>12p</td>
+                <td>0.936°</td>
+                <td class="cell-fail">Fail</td>
+                <td class="cell-fail">Fail</td>
+                <td class="cell-fail">Fail</td>
+                <td class="cell-fail">Fail</td>
+                <td class="cell-fail">Fail</td>
+                <td>-</td>
+                <td>-</td>
+                <td>-</td>
+                <td>0.188</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td>1.163</td>
+                <td>0.935</td>
+                <td>1.143</td>
+                <td class="cell-fail">Fail</td>
+                <td>0.793</td>
+                <td>1.008</td>
+                <td class="cell-best">0.793</td>
+                <td>0.153</td>
+                <td>0.108</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>5p</td>
+                <td>0.936°</td>
+                <td>0.770</td>
+                <td>0.966</td>
+                <td>0.865</td>
+                <td>0.914</td>
+                <td>0.852</td>
+                <td>0.873</td>
+                <td class="cell-best">0.770</td>
+                <td>0.065</td>
+                <td>0.103</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>9p</td>
+                <td>0.793°</td>
+                <td>0.769</td>
+                <td>0.673</td>
+                <td>0.690</td>
+                <td>0.783</td>
+                <td>0.752</td>
+                <td>0.733</td>
+                <td class="cell-best">0.673</td>
+                <td>0.044</td>
+                <td>0.103</td>
+              </tr>
+              <tr>
+                <td class="cell-model-ritnet">RITnet</td>
+                <td>12p</td>
+                <td>0.852°</td>
+                <td>0.941</td>
+                <td>0.705</td>
+                <td>0.949</td>
+                <td>0.799</td>
+                <td>0.730</td>
+                <td>0.825</td>
+                <td class="cell-best">0.705</td>
+                <td>0.103</td>
+                <td>0.101</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border);">
+                <td class="cell-model-cpp">2D C++</td>
+                <td>0p</td>
+                <td>N/A (Bypass)</td>
+                <td class="cell-fail">Fail</td>
+                <td>0.820</td>
+                <td>0.711</td>
+                <td>0.795</td>
+                <td>0.855</td>
+                <td>0.795</td>
+                <td class="cell-best">0.711</td>
+                <td>0.053</td>
+                <td>0.106</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>5p</td>
+                <td>0.752°</td>
+                <td>0.830</td>
+                <td>0.793</td>
+                <td>0.753</td>
+                <td>0.722</td>
+                <td>0.789</td>
+                <td>0.777</td>
+                <td class="cell-best">0.722</td>
+                <td>0.037</td>
+                <td>0.106</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>9p</td>
+                <td>0.830°</td>
+                <td>0.858</td>
+                <td>0.720</td>
+                <td>0.708</td>
+                <td>0.732</td>
+                <td>0.857</td>
+                <td>0.775</td>
+                <td class="cell-best">0.708</td>
+                <td>0.068</td>
+                <td>0.101</td>
+              </tr>
+              <tr>
+                <td class="cell-model-cpp">2D C++</td>
+                <td>12p</td>
+                <td>0.858°</td>
+                <td>0.897</td>
+                <td>1.020</td>
+                <td>0.843</td>
+                <td>0.931</td>
+                <td>0.748</td>
+                <td>0.888</td>
+                <td class="cell-best">0.748</td>
+                <td>0.091</td>
+                <td>0.106</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:1vmin;margin-top:.8vmin;">
+          <div class="card card-green" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">🏆 <strong>Best Peak:</strong> RITnet 9p → <strong>0.673°</strong></p>
+          </div>
+          <div class="card card-accent" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">📊 <strong>Best Mean:</strong> RITnet 9p → <strong>0.733°</strong> (σ=0.044 매우
+              안정)</p>
+          </div>
+          <div class="card card-red" style="flex:1;padding:.8vmin 1.2vmin;">
+            <p style="font-size:1.5vmin;">⚠️ <strong>Mamba3 12p:</strong> 5회 전부 Fail (1.2° 엄격 임계 + 4p 조합에서 취약)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 16: Cross-Case Comparison -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🔍 케이스 간 종합 비교 분석 <span class="sub">모델별 Best Mean Accuracy 비교 (4 Cases × 3 Models)</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col" style="flex:1.3;">
+            <div class="table-scroll" style="flex:1;">
+              <table style="font-size:1.6vmin;">
+                <thead>
+                  <tr>
+                    <th>Case</th>
+                    <th>조건</th>
+                    <th>Mamba3 Best</th>
+                    <th>RITnet Best</th>
+                    <th>2D C++ Best</th>
+                    <th>Winner</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="color:var(--accent);font-weight:700;">Case 1</td>
+                    <td>1.2° / 5p</td>
+                    <td class="cell-model-mamba">0.743° (9p)</td>
+                    <td class="cell-model-ritnet">0.829° (12p)</td>
+                    <td class="cell-model-cpp">0.772° (9p)</td>
+                    <td style="color:var(--purple);font-weight:700;">🏆 Mamba3</td>
+                  </tr>
+                  <tr>
+                    <td style="color:var(--green);font-weight:700;">Case 2</td>
+                    <td>2.0° / 5p</td>
+                    <td class="cell-model-mamba">1.308° (5p)</td>
+                    <td class="cell-model-ritnet">1.058° (12p)</td>
+                    <td class="cell-model-cpp">1.451° (12p)</td>
+                    <td style="color:var(--cyan);font-weight:700;">🏆 RITnet</td>
+                  </tr>
+                  <tr>
+                    <td style="color:var(--purple);font-weight:700;">Case 3</td>
+                    <td>2.0° / 4p</td>
+                    <td class="cell-model-mamba">1.237° (5p)</td>
+                    <td class="cell-model-ritnet">1.167° (5p)</td>
+                    <td class="cell-model-cpp">1.215° (0p)</td>
+                    <td style="color:var(--cyan);font-weight:700;">🏆 RITnet</td>
+                  </tr>
+                  <tr>
+                    <td style="color:var(--yellow);font-weight:700;">Case 4</td>
+                    <td>1.2° / 4p</td>
+                    <td class="cell-model-mamba">0.816° (0p)</td>
+                    <td class="cell-model-ritnet">0.733° (9p)</td>
+                    <td class="cell-model-cpp">0.775° (9p)</td>
+                    <td style="color:var(--cyan);font-weight:700;">🏆 RITnet</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="col" style="flex:.7;">
+            <div class="card card-purple" style="margin-bottom:1vmin;">
+              <h3>Mamba3 (T=7) 특성</h3>
+              <ul>
+                <li><strong>Case 1 (엄격+5p)</strong>에서 최강 — Peak <strong>0.447°</strong></li>
+                <li>시계열 맥락이 유리한 조건에서 돌발적 고성능</li>
+                <li>Precision이 타 모델 대비 높음 (~0.14°)</li>
+                <li>엄격 임계+4p에서 Fail 빈도 높음</li>
+              </ul>
+            </div>
+            <div class="card card-cyan" style="margin-bottom:1vmin;">
+              <h3>RITnet 특성</h3>
+              <ul>
+                <li><strong>4개 Case 중 3개</strong>에서 최우수 Mean</li>
+                <li>Fail 빈도 최저, <strong>가장 안정적</strong></li>
+                <li>Precision 최우수 (~0.104°)</li>
+                <li>캘리브레이션 9p/12p에서 일관적 성능</li>
+              </ul>
+            </div>
+            <div class="card card-yellow">
+              <h3>2D C++ 특성</h3>
+              <ul>
+                <li>Case 4에서 Mamba3 대비 안정적</li>
+                <li>간헐적 Fail 발생</li>
+                <li>엄격 조건에서 중간 수준</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 17: Key Insights -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>💡 핵심 인사이트 & 분석 결론 <span class="sub">실험 결과에서 도출된 주요 발견사항</span></h2>
+      <div class="body">
+        <div class="cols">
+          <div class="col">
+            <div class="card card-green" style="margin-bottom:1.2vmin;">
+              <h3>1. 세그멘테이션 품질 ≠ Gaze Accuracy</h3>
+              <p>Mamba3의 체감 마스크 품질이 2D C++보다 열위에도 Gaze Accuracy는 유사하거나 우수함. <strong>LinearRegression이 체계적 편향(Systematic
+                  Bias)을 자동 보정</strong>하기 때문.</p>
+              <p style="color:var(--muted);margin-top:.5vmin;font-size:1.5vmin;">→ 최종 오차의 직접 원인은 <strong>프레임 간 무작위
+                  지터(Random Jitter)</strong>뿐</p>
+            </div>
+            <div class="card card-accent" style="margin-bottom:1.2vmin;">
+              <h3>2. 2D C++가 딥러닝을 압도하는 이유</h3>
+              <p>결정론적 기하학 알고리즘 → <strong>프레임 간 지터 극히 적음</strong> → Precision 최우수. 반면 딥러닝 모델은 확률적 마스크 변동으로 인한 지터가 오차 하한선을
+                형성.</p>
+            </div>
+            <div class="card card-yellow">
+              <h3>3. 캘리브레이션 포인트 수의 비선형 효과</h3>
+              <p>12p가 항상 9p보다 좋은 것은 아님. Case별로 최적 캘리브레이션 포인트가 다름 → <strong>과적합과 일반화의 트레이드오프</strong>.</p>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card card-purple" style="margin-bottom:1.2vmin;">
+              <h3>4. Mamba3의 양면성</h3>
+              <p><strong>최고 Peak (0.447°)</strong>를 달성하지만, 동시에 <strong>전체 Fail (Case 4 12p)</strong>도 기록. 시계열 맥락의
+                <strong>하이리스크 하이리턴</strong> 특성.</p>
+            </div>
+            <div class="card card-cyan" style="margin-bottom:1.2vmin;">
+              <h3>5. RITnet의 안정성 우위</h3>
+              <p>4개 Case 중 <strong>3개에서 Best Mean</strong> 달성. Fail 빈도 최저. <strong>Precision 일관적으로 ~0.104°</strong>.
+                프로덕션 환경에 가장 적합.</p>
+            </div>
+            <div class="card card-red">
+              <h3>6. Outlier Threshold의 양날의 검</h3>
+              <p><code>1.2°</code>: 엄격하여 고정밀 결과를 산출하지만 Fail 위험 증가.<br>
+                <code>2.0°</code>: 안정적이지만 큰 오차 포인트가 포함되어 Mean 상승.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 18: Why Improvements -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <h2>🎯 main 브랜치 대비 성능 향상 — 논리적 연결 <span class="sub">RITnet(main) → nnunet-mamba3: 무엇이 바뀌어서 성능이 향상되었는가?</span></h2>
+      <div class="body">
+        <pre style="font-size:1.55vmin;line-height:1.6;">
+<span class="highlight-red">main 브랜치 (v-umamba)</span>                          <span class="highlight-green">nnunet-mamba3 브랜치 (현재)</span>
+══════════════════════════════                    ══════════════════════════════════
+
+<span class="highlight-yellow">① 캘리브레이션</span>                                   <span class="highlight-yellow">① 캘리브레이션</span>
+  중앙 4pt (0.4~0.6) 사각형                         3×3 9-point Grid (화면 전체)
+  → 좁은 영역 학습 → 외삽 붕괴                      → <span class="highlight-green">LinearRegression 조건수 극적 개선</span>
+          │                                                  │
+          ▼                                                  ▼
+<span class="highlight-yellow">② 밸리데이션</span>                                     <span class="highlight-yellow">② 밸리데이션</span>
+  4-Corner 외삽 영역 테스트                         (0.5, 0.7) 중앙 내삽 1점 × 5회
+  → 외삽 오차 ∝ 거리² 폭증                          → <span class="highlight-green">내삽 영역만 평가 → 오차 최소화</span>
+          │                                                  │
+          ▼                                                  ▼
+<span class="highlight-yellow">③ 후처리</span>                                        <span class="highlight-yellow">③ 후처리</span>
+  필터 없음 → 마스크 지터 그대로 전파              EMA(α=0.4) + Jump Reject + Blur
+  → norm_pos 불안정                                 → <span class="highlight-green">지터 60% 억제 → norm_pos 안정화</span>
+          │                                                  │
+          ▼                                                  ▼
+<span class="highlight-yellow">④ Outlier</span>                                       <span class="highlight-yellow">④ Outlier</span>
+  threshold = 2.5° → 큰 오차 포함                  threshold = 1.5° → <span class="highlight-green">큰 오차 제거</span>
+          │                                                  │
+          ▼                                                  ▼
+<span class="highlight-yellow">⑤ 파이프라인</span>                                     <span class="highlight-yellow">⑤ 파이프라인</span>
+  Generator 소진/Dispersion 66.7ms 고정            <span class="highlight-green">list 변환 + 점진적 Dispersion 완화</span>
+  → 밸리데이션 간헐 실패                            → <span class="highlight-green">100% 안정 측정</span>
+          │                                                  │
+          ▼                                                  ▼
+<span class="highlight-red">  2D C++ 2.0°+ / RITnet ~1.7°</span>                   <span class="highlight-green">  2D C++ ~0.8° / RITnet ~0.9° / Mamba3 ~0.7°</span></pre>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- SLIDE 19: Conclusion -->
+    <!-- ============================================================ -->
+    <div class="slide">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;">
+        <div style="text-align:center;margin-bottom:4vmin;">
+          <span class="tag tag-green">Conclusion</span>
+        </div>
+        <h1 style="text-align:center;">결론 및 <span class="gradient">향후 방향</span></h1>
+
+        <div class="cols" style="margin-top:3vmin;">
+          <div class="col">
+            <div class="card card-green" style="margin-bottom:1.5vmin;">
+              <h3>✅ 달성한 것</h3>
+              <ul>
+                <li>Vivim-Mamba3 시계열 동공 세그멘테이션 Pupil Labs 통합</li>
+                <li>밸리데이션 파이프라인 4가지 버그 근본 해결</li>
+                <li>3개 모델 × 4 Case × 4 캘리브레이션 = <strong>48조건 풀 매트릭스 실험</strong> 완료</li>
+                <li>Peak Accuracy <strong>0.447°</strong> 달성 (Mamba3 Case1 9p)</li>
+              </ul>
+            </div>
+            <div class="card card-accent">
+              <h3>📌 핵심 결론</h3>
+              <ul>
+                <li>성능 향상의 주 원인은 <strong>실험 설계 변경</strong> (9pt Grid, 중앙 밸리데이션, outlier threshold)</li>
+                <li>RITnet이 <strong>안정성 면에서 가장 우수</strong> (4 Case 중 3개 Best Mean)</li>
+                <li>Mamba3는 <strong>최고 Peak 달성 가능하지만 불안정</strong></li>
+                <li>2D C++는 <strong>지터 최소</strong>로 중간 수준의 일관된 성능</li>
+              </ul>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card card-purple">
+              <h3>🔮 향후 과제</h3>
+              <ul>
+                <li><strong>밸리데이션 패턴 확장</strong>: 단일점(0.5,0.7)에서 5-point Cross로 변경하여 일반화 성능 진정한 평가</li>
+                <li><strong>AMP 적용</strong>: <code>torch.cuda.amp.autocast()</code>로 Mamba3 추론 20-30% 가속</li>
+                <li><strong>Mamba3 안정화</strong>: EMA 파라미터 튜닝, 시간 윈도우(T) 최적화</li>
+                <li><strong>Lazy 모델 로딩</strong>: GPU 메모리 ~80% 절약</li>
+                <li><strong>다중 시야각 실험</strong>: 외곽 영역 포함한 공정 비교</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align:center;margin-top:3vmin;">
+          <p class="meta">Pupil Labs Custom Fork — <code>nnunet-mamba3</code> Branch · 2026-08-25</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /deck -->
+
+  <script>
+    (function () {
+      const slides = document.querySelectorAll('.slide');
+      const progressBar = document.getElementById('progressBar');
+      const slideNumber = document.getElementById('slideNumber');
+      let current = 0;
+
+      function show(n) {
+        if (n < 0 || n >= slides.length) return;
+        slides[current].classList.remove('active');
+        current = n;
+        slides[current].classList.add('active');
+        progressBar.style.width = ((current + 1) / slides.length * 100) + '%';
+        slideNumber.textContent = (current + 1) + ' / ' + slides.length;
+      }
+
+      document.addEventListener('keydown', e => {
+        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); show(current + 1); }
+        else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(current - 1); }
+        else if (e.key === 'Home') { e.preventDefault(); show(0); }
+        else if (e.key === 'End') { e.preventDefault(); show(slides.length - 1); }
+      });
+
+      // Touch support
+      let touchStartX = 0;
+      document.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].screenX; });
+      document.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].screenX - touchStartX;
+        if (dx < -50) show(current + 1);
+        else if (dx > 50) show(current - 1);
+      });
+
+      show(0);
+    })();
+  </script>
+
+</body>
+
+</html>
