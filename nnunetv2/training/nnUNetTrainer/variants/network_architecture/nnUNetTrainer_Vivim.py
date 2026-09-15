@@ -18,10 +18,12 @@ from datasets.openeds_dataset import OpenEDS192SequenceDataset
 class VivimBackboneNNUNet(nn.Module):
     """
     nnUNet-compatible wrapper for Vivim (Video Vision Mamba).
-    Natively receives 5D Temporal Sequences [B, T, C=1, H, W] for true Spatio-Temporal Mamba Scanning.
+    Natively receives 5D Temporal Sequences [B, T, C=1, H, W] or 4D Streaming Frames [B, C, H, W]
+    with seamless Bottleneck Feature FIFO Caching for real-time inference.
     """
-    def __init__(self, in_channels: int = 1, num_classes: int = 4, base_channels: int = 32, d_state: int = 16, d_conv: int = 4, expand: int = 2):
+    def __init__(self, in_channels: int = 1, num_classes: int = 4, base_channels: int = 32, d_state: int = 16, d_conv: int = 4, expand: int = 2, **kwargs):
         super().__init__()
+        use_mamba = kwargs.pop("use_mamba", True)
         self.backbone = VivimBackbone(
             in_channels=in_channels,
             num_classes=num_classes,
@@ -29,18 +31,33 @@ class VivimBackboneNNUNet(nn.Module):
             d_state=d_state,
             d_conv=d_conv,
             expand=expand,
-            use_mamba=True,
+            use_mamba=use_mamba,
+            **kwargs,
         )
 
+    def reset_cache(self):
+        """Reset FIFO cache in the underlying Vivim backbone."""
+        if hasattr(self.backbone, "reset_cache"):
+            self.backbone.reset_cache()
+
+    def enable_fifo_cache(self, enabled: bool = True, temporal_window: int = None):
+        """Enable or disable FIFO inference caching."""
+        if hasattr(self.backbone, "enable_fifo_cache"):
+            self.backbone.enable_fifo_cache(enabled, temporal_window)
+
+    def disable_fifo_cache(self):
+        """Disable FIFO inference caching."""
+        if hasattr(self.backbone, "disable_fifo_cache"):
+            self.backbone.disable_fifo_cache()
+
+    def set_temporal_window(self, window_size: int):
+        """Set temporal window size for FIFO cache."""
+        if hasattr(self.backbone, "set_temporal_window"):
+            self.backbone.set_temporal_window(window_size)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.ndim == 5:
-            # True 5D Temporal Sequence: [B, T, C=1, H, W] -> Temporal Mamba Bottleneck
-            out = self.backbone(x)  # [B, Num_Classes, H, W]
-            return out
-        elif x.ndim == 4:
-            x_seq = x.unsqueeze(1)
-            out = self.backbone(x_seq)
-            return out
+        if x.ndim in (4, 5):
+            return self.backbone(x)
         else:
             raise ValueError(f"Invalid input tensor shape for VivimBackboneNNUNet: {x.shape}")
 
