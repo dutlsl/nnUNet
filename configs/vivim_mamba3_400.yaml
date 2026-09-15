@@ -1,0 +1,71 @@
+# ViViM + Mamba3 + 400×400 (48px padding -> 448×448) (Temporal Window T=3)
+# OpenEDS Sequence Training Configuration
+
+ablation:
+  use_mamba: true
+  mamba_version: "mamba3"
+  use_sclera_containment: true
+  use_sphere_head: true
+  use_weakmed: true
+
+data:
+  dataset: openeds_sequence
+  sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
+  pseudo_label_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_PseudoLabels_400
+  temporal_window: 3
+
+  # Preprocessing mode
+  preprocessing: ritnet
+  target_resolution: [448, 448]
+  input_crop: [120, 520, 0, 400]
+  padding: 48
+
+model:
+  backbone: vivim
+  base_channels: 32
+  num_classes: 4
+  mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    headdim: 64
+
+  sphere_head:
+    hidden_dim: 128
+    max_radius: 200.0
+    min_radius: 30.0
+    sharpness: 20.0
+    sharpness_anneal_epochs: 50
+    sharpness_max: 50.0
+
+training:
+  batch_size: 8
+  epochs: 1000
+  lr: 0.001
+  num_iterations_per_epoch: 250
+  num_val_iterations_per_epoch: 50
+  num_workers: 8
+  weight_decay: 0.0001
+  pretrained_checkpoint: /home/iulab1/PycharmProjects/nnUNet/nnUNet_results/Dataset600_OpenEDS2019/nnUNetTrainer_Vivim__nnUNetPlans__2d/fold_1/checkpoint_best.pth
+  early_stopping:
+    patience: 100000
+    min_epochs: 1000
+
+losses:
+  seg_dice_ce:
+    weight: 1.0
+  weakmed_m2b:
+    weight: 1.0
+  weakmed_sc:
+    weight: 0.5
+  sclera_containment:
+    weight: 0.5
+    warmup_epochs: 10
+
+experiment:
+  name: vivim_mamba3_400_t3
+  seed: 42
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: mamba3_400_t3
