@@ -34,6 +34,12 @@ from utils.config import load_config, save_config, ConfigDict
 from utils.seed import set_seed
 from utils.metrics import compute_dice_score
 from datasets.openeds_dataset import get_openeds_sequence_dataloaders
+# Compatibility patch for PyTorch 2.5.1 and quack-kernels
+if not hasattr(torch, 'float8_e8m0fnu'):
+    torch.float8_e8m0fnu = None
+if not hasattr(torch, 'float4_e2m1fn_x2'):
+    torch.float4_e2m1fn_x2 = None
+
 from models.vivim_backbone import VivimBackbone
 from losses.weakmed_loss import WeakMedLoss
 
@@ -196,6 +202,16 @@ def main():
         mamba_version=mamba_version,
         mamba_headdim=getattr(mamba_cfg, 'headdim', 64),
     ).to(device)
+
+        # Load Pretrained Checkpoint if specified (Fine-tuning)
+    pretrained_path = getattr(cfg.training, 'pretrained_checkpoint', None)
+    if pretrained_path and os.path.isfile(pretrained_path):
+        print(f'[Train] Loading pretrained backbone from: {pretrained_path}', flush=True)
+        ckpt_data = torch.load(pretrained_path, map_location='cpu')
+        state_dict = ckpt_data.get('network_weights', ckpt_data.get('state_dict', ckpt_data.get('model_state_dict', ckpt_data)))
+        clean_state = {k.replace('backbone.', ''): v for k, v in state_dict.items()}
+        missing, unexpected = model.load_state_dict(clean_state, strict=False)
+        print(f'[Train] Checkpoint loaded successfully! (Missing: {len(missing)}, Unexpected: {len(unexpected)})', flush=True)
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[Train] Model trainable parameters: {total_params:,}")
