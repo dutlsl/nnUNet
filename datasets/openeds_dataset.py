@@ -21,15 +21,13 @@ class OpenEDS400SequenceDataset(Dataset):
         temporal_window: int = 3,
         crop: List[int] = [120, 520, 0, 400],
         padded_resolution: List[int] = [448, 448],
-        mean: float = 86.45,
-        std: float = 39.94,
+        preprocessor: Optional['RITnetPreprocessor'] = None,
     ):
         super().__init__()
         self.temporal_window = temporal_window
         self.crop = crop
         self.padded_resolution = padded_resolution
-        self.mean = mean
-        self.std = std
+        self.preprocessor = preprocessor or RITnetPreprocessor(target_size=(crop[1] - crop[0], crop[3] - crop[2]))
         self.image_dir = image_dir
         self.label_dir = label_dir
 
@@ -89,10 +87,12 @@ class OpenEDS400SequenceDataset(Dataset):
 
         frames = []
         for fpath in window_files:
-            img = np.array(Image.open(fpath).convert('L'), dtype=np.float32)
+            img = cv2.imread(fpath, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                img = np.zeros((640, 400), dtype=np.uint8)  # H=640, W=400 (OpenEDS native)
             img_crop = img[y_start:y_end, x_start:x_end]
-            img_norm = (img_crop - self.mean) / (self.std + 1e-8)
-            frames.append(img_norm)
+            img_prep = self.preprocessor(img_crop)
+            frames.append(img_prep)
 
         # [T, 1, H, W]
         frames_np = np.stack(frames)[:, None]
@@ -226,11 +226,18 @@ def get_openeds_sequence_dataloaders(cfg) -> Dict[str, DataLoader]:
         if not os.path.isdir(img_dir):
             continue
 
-        ds = OpenEDS192SequenceDataset(
-            image_dir=img_dir,
-            label_dir=lbl_dir,
-            temporal_window=cfg.data.temporal_window,
-        )
+        if '400' in str(pseudo_root) or getattr(cfg.data, 'dataset', '') == 'openeds_400':
+            ds = OpenEDS400SequenceDataset(
+                image_dir=img_dir,
+                label_dir=lbl_dir,
+                temporal_window=cfg.data.temporal_window,
+            )
+        else:
+            ds = OpenEDS192SequenceDataset(
+                image_dir=img_dir,
+                label_dir=lbl_dir,
+                temporal_window=cfg.data.temporal_window,
+            )
 
         loaders[split] = DataLoader(
             ds,
