@@ -1,0 +1,62 @@
+ablation:
+  mamba_version: mamba3
+  use_mamba: true
+  use_sclera_containment: false
+  use_sphere_head: false
+  use_weakmed: true
+data:
+  dataset: dual_stream
+  input_crop:
+  - 120
+  - 520
+  - 0
+  - 400
+  padding: 48
+  preprocessing: ritnet
+  semantic_gt_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Semantic_Segmentation_Dataset
+  sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
+  target_resolution:
+  - 448
+  - 448
+  temporal_window: 8
+  unlabeled_stride: 3
+experiment:
+  name: phase1_sparse_t8
+  seed: 42
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: phase1_sparse_t8
+losses:
+  entropy_min:
+    weight: 0.05
+  seg_dice_ce:
+    weight: 1.0
+  weakmed_m2b:
+    weight: 0.5
+  weakmed_sc:
+    weight: 0.5
+model:
+  backbone: vivim
+  base_channels: 32
+  mamba:
+    d_conv: 4
+    d_state: 16
+    expand: 2
+    headdim: 64
+  num_classes: 4
+training:
+  batch_size: 8
+  early_stopping:
+    min_epochs: 50
+    patience: 500
+  epochs: 1000
+  lr: 0.001
+  n_labeled_per_batch: 2
+  num_iterations_per_epoch: 250
+  num_val_iterations_per_epoch: 50
+  num_workers: 4
+  precision: bf16
+  pretrained_checkpoint: /home/iulab1/PycharmProjects/nnUNet/nnUNet_results/Dataset600_OpenEDS2019/nnUNetTrainer_Vivim__nnUNetPlans__2d/fold_1/checkpoint_best.pth
+  unsup_rampup_epochs: 30
+  unsup_weight: 0.2
+  weight_decay: 0.0001
