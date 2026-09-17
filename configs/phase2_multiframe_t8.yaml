@@ -1,0 +1,61 @@
+# Phase 2: Multi-Frame Decoding + Masked Label Loss (Strategy D)
+# GPU: 1 | T=8 (Unified Temporal Context)
+
+ablation:
+  use_mamba: true
+  mamba_version: "mamba3"
+  use_sclera_containment: false
+  use_sphere_head: false
+  use_weakmed: true
+
+data:
+  dataset: boundary_window
+  semantic_gt_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Semantic_Segmentation_Dataset
+  sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
+  temporal_window: 8
+  preprocessing: ritnet
+  target_resolution: [448, 448]
+  input_crop: [120, 520, 0, 400]
+  padding: 48
+
+model:
+  backbone: vivim_multiframe
+  base_channels: 32
+  num_classes: 4
+  mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    headdim: 64
+
+training:
+  batch_size: 4
+  epochs: 1000
+  lr: 0.001
+  precision: "bf16"
+  max_grad_norm: 1.0
+  num_iterations_per_epoch: 250
+  num_val_iterations_per_epoch: 50
+  num_workers: 4
+  weight_decay: 0.0001
+  pretrained_checkpoint: /home/iulab1/PycharmProjects/nnUNet/nnUNet_results/Dataset600_OpenEDS2019/nnUNetTrainer_Vivim__nnUNetPlans__2d/fold_1/checkpoint_best.pth
+  unsup_rampup_epochs: 30
+  early_stopping:
+    patience: 500
+    min_epochs: 50
+
+losses:
+  seg_dice_ce:
+    weight: 1.0
+  weakmed_m2b:
+    weight: 1.0
+  temporal_smooth:
+    weight: 1.0
+
+experiment:
+  name: phase2_multiframe_t8
+  seed: 42
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: phase2_mf_t8

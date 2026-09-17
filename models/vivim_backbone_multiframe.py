@@ -221,3 +221,38 @@ class VivimBackboneMultiFrame(nn.Module):
                 b_last = b_curr
 
             return self._decode_single_frame(b_last, e3, e2, e1)
+
+        # 3. Batch Multi-frame Inference (T > 1, output_all_frames=False): decode last frame + warm up cache
+        x_flat = x.view(B * T, C, H, W)
+        e1 = self.enc1(x_flat)
+        p1 = self.pool1(e1)
+        e2 = self.enc2(p1)
+        p2 = self.pool2(e2)
+        e3 = self.enc3(p2)
+        p3 = self.pool3(e3)
+        b = self.bottleneck(p3)
+        _, C_b, H_b, W_b = b.shape
+
+        if self.use_mamba:
+            b_seq = b.view(B, T, C_b, H_b, W_b)
+            b_mamba = self.temporal_mamba(b_seq)
+        else:
+            b_mamba = b.view(B, T, C_b, H_b, W_b)
+
+        e3_all = e3.view(B, T, -1, H // 4, W // 4)
+        e2_all = e2.view(B, T, -1, H // 2, W // 2)
+        e1_all = e1.view(B, T, -1, H, W)
+
+        needed = self.temporal_window - 1
+        if needed > 0:
+            if T >= needed:
+                self._fifo_cache = [
+                    b_mamba[:, i : i + 1].detach().clone() for i in range(T - needed, T)
+                ]
+            else:
+                self._fifo_cache = [
+                    b_mamba[:, 0:1].detach().clone() for _ in range(needed - T)
+                ] + [b_mamba[:, i : i + 1].detach().clone() for i in range(T)]
+
+        return self._decode_single_frame(
+            b_mamba[:, -1], e3_all[:, -1], e2_all[:, -1], e1_all[:, -1])
