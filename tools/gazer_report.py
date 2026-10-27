@@ -668,20 +668,21 @@ code {{ background:#1d2740; padding:1px 5px; border-radius:4px;
 <div class="card">
 <table>
 <tr><th>#</th><th>목표</th><th>본 리포트 내 대응</th></tr>
-<tr><td>1</td><td><b>VLM(SAM3)을 삼아 베이스라인의 수도라벨 의존성 없애기</b> —
+<tr><td>1</td><td><b>VLM(SAM3)을 삼아 베이스라인 수도라벨 의존성 없애기</b> —
 semantic fold_1 초기화 + SAM3 soft4 reward-landscape로 pseudo-label 없이
 시퀀스 도메인 적응</td>
   <td>§3 (SAM3 teacher + reward landscape) · §3a (동일 지표로 베이스라인
   비교 — 수도라벨 의존 탈피 검증)</td></tr>
-<tr><td>2</td><td><b>RL(GRPO/PPO) 튜닝으로 시퀀스 세미지도 학습</b> —
+<tr><td>2</td><td><b>RL(GRPO or PPO) 튜닝으로 시퀀스 세미지도 학습</b> —
 정책 = 분할 backbone, per-pixel mask가 action, dense teacher-likelihood
 reward로 on-policy GRPO</td>
   <td>§3-2 (dense per-pixel GRPO 신호 복원) · §3-3 (학습 로그 수치)</td></tr>
-<tr><td>3</td><td><b>최종 스테이지: VLM+RL 가중치 + Annealing된 경량 모델</b> —
+<tr><td>3</td><td><b>최종 스테이지: VLM+RL튜닝 가중치 + Annealing된 '경량화' 모델</b> —
 RL 보상이 유지되도록 연산 병목 모듈을 annealing</td>
-  <td>§2 (병목 = CNN decoder 확인 + 시연 2스트림 예산 분석) · §4
-  (decoder 채널 annealing 실험 — Stage A distill → RL 보상 게이트 →
-  4090 T=8 2스트림 120Hz 실측으로 최종 rung 선정)</td></tr>
+  <td>§2 (병목 = CNN enc+dec 확인 + 시연 2스트림 예산 분석) · §4
+  (CNN 인코더+디코더 2×2 채널 annealing — Stage A warm-start 체인
+  distill → Stage B RL 보상 게이트 →
+  4090 T=8 2스트림 120Hz 실측으로 최종 변종 선정)</td></tr>
 </table>
 </div>
 

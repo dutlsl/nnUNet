@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GAZER 진행 리포트 — 2026-10-27 17:18</title>
+<title>GAZER 진행 리포트 — 2026-10-27 18:16</title>
 <style>
 :root { --bg:#0f1420; --card:#171e2e; --tx:#dce3f0; --mut:#8494ad;
   --ac:#7c5cff; --ok:#2ecc71; --warn:#f39c12; --bad:#e74c3c; }
@@ -51,7 +51,7 @@ code { background:#1d2740; padding:1px 5px; border-radius:4px;
 .b-wait { background:var(--card); color:var(--mut); border:1px solid var(--mut); }
 </style></head><body><div class="wrap">
 <h1>GAZER 진행 리포트</h1>
-<p class="note">생성: 2026-10-27 17:18 · AutoGaze × GRPO — OpenEDS2019 label-scarce 시퀀스
+<p class="note">생성: 2026-10-27 18:16 · AutoGaze × GRPO — OpenEDS2019 label-scarce 시퀀스
 분할 · SAM3 live teacher · 정책 = 분할 backbone 그 자체 (plan §7) ·
 데이터 소스: gazer_bench.json / gazer_grpo_backbone_t5.log / gazer_eval_compare.json</p>
 
@@ -59,20 +59,21 @@ code { background:#1d2740; padding:1px 5px; border-radius:4px;
 <div class="card">
 <table>
 <tr><th>#</th><th>목표</th><th>본 리포트 내 대응</th></tr>
-<tr><td>1</td><td><b>VLM(SAM3)을 삼아 베이스라인의 수도라벨 의존성 없애기</b> —
+<tr><td>1</td><td><b>VLM(SAM3)을 삼아 베이스라인 수도라벨 의존성 없애기</b> —
 semantic fold_1 초기화 + SAM3 soft4 reward-landscape로 pseudo-label 없이
 시퀀스 도메인 적응</td>
   <td>§3 (SAM3 teacher + reward landscape) · §3a (동일 지표로 베이스라인
   비교 — 수도라벨 의존 탈피 검증)</td></tr>
-<tr><td>2</td><td><b>RL(GRPO/PPO) 튜닝으로 시퀀스 세미지도 학습</b> —
+<tr><td>2</td><td><b>RL(GRPO or PPO) 튜닝으로 시퀀스 세미지도 학습</b> —
 정책 = 분할 backbone, per-pixel mask가 action, dense teacher-likelihood
 reward로 on-policy GRPO</td>
   <td>§3-2 (dense per-pixel GRPO 신호 복원) · §3-3 (학습 로그 수치)</td></tr>
-<tr><td>3</td><td><b>최종 스테이지: VLM+RL 가중치 + Annealing된 경량 모델</b> —
+<tr><td>3</td><td><b>최종 스테이지: VLM+RL튜닝 가중치 + Annealing된 '경량화' 모델</b> —
 RL 보상이 유지되도록 연산 병목 모듈을 annealing</td>
-  <td>§2 (병목 = CNN decoder 확인 + 시연 2스트림 예산 분석) · §4
-  (decoder 채널 annealing 실험 — Stage A distill → RL 보상 게이트 →
-  4090 T=8 2스트림 120Hz 실측으로 최종 rung 선정)</td></tr>
+  <td>§2 (병목 = CNN enc+dec 확인 + 시연 2스트림 예산 분석) · §4
+  (CNN 인코더+디코더 2×2 채널 annealing — Stage A warm-start 체인
+  distill → Stage B RL 보상 게이트 →
+  4090 T=8 2스트림 120Hz 실측으로 최종 변종 선정)</td></tr>
 </table>
 </div>
 
@@ -108,7 +109,7 @@ RL 보상이 유지되도록 연산 병목 모듈을 annealing</td>
 <div class="card">
 <p>브랜치 <code>backbone</code> → <code>github.com/dutlsl/nnUNet</code> (push 완료)</p>
 <table><tr><th>GAZER 태그</th></tr><tr><td><code>v4.0.0-gazer</code></td></tr><tr><td><code>v4.0.1-gazer-dense</code></td></tr><tr><td><code>v4.0.2-gazer-report</code></td></tr></table>
-<table><tr><th>최근 커밋</th></tr><tr><td><code>8d4daac35 docs(gazer): step-5 HTML report + generator — includes the 3 research goals, 5-step plan, bench verdict, dense-GRPO diagnosis, eval-compare (auto-updates)</code></td></tr><tr><td><code>8c6c31831 feat(gazer): dense per-pixel GRPO path + τ 1.5/G 16 (signal-decay fix)</code></td></tr><tr><td><code>17a8f672b chore(tools): GAZER ops tooling (watchdog, event logger, teacher-input verify)</code></td></tr><tr><td><code>30d3c6f3e feat(gazer): AutoGaze x GRPO on-policy tuning of the segmentation backbone (plan §7)</code></td></tr><tr><td><code>e6a39764e feat(weights): add T=3, T=7, and new all-time record T=8 best checkpoints</code></td></tr></table></div>
+<table><tr><th>최근 커밋</th></tr><tr><td><code>70e85fd04 feat(gazer): 2x2 enc/dec annealing grid + phase0 clean-exit race fix</code></td></tr><tr><td><code>8d4daac35 docs(gazer): step-5 HTML report + generator — includes the 3 research goals, 5-step plan, bench verdict, dense-GRPO diagnosis, eval-compare (auto-updates)</code></td></tr><tr><td><code>8c6c31831 feat(gazer): dense per-pixel GRPO path + τ 1.5/G 16 (signal-decay fix)</code></td></tr><tr><td><code>17a8f672b chore(tools): GAZER ops tooling (watchdog, event logger, teacher-input verify)</code></td></tr><tr><td><code>30d3c6f3e feat(gazer): AutoGaze x GRPO on-policy tuning of the segmentation backbone (plan §7)</code></td></tr></table></div>
 
 <h2>2. 스트레스 테스트 — 병목 원상 확인</h2>
 <div class="card">
