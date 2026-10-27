@@ -4,10 +4,14 @@ GRPOLoss: policy-gradient update for the GAZER segmentation policy
 
 L_GRPO  = -mean( exp(logp - logp_ref) * A )
 
-  logp / logp_ref:  [B, T] float32 — PIXEL-MEAN categorical log-prob of the
-                    sampled mask under the current / reference policy
-                    ((1/P) sum_x log p[x, m(x)]), so the ratio is O(1) and
-                    exp() stays stable.
+  DENSE per-pixel (2026-10-27, GRPOLoss.dense — used by train_gazer.grpo_step):
+    logp / logp_ref: [G, N, H, W] float32 — per-pixel categorical log-prob
+                     of the sampled mask (categorical_logp_dense) under the
+                     current / reference policy
+    advantage:       [G, N, H, W] dense group-centered advantage
+                     (dense_pixel_advantage, raw centering, no std norm)
+  Legacy frame-scalar path (GRPOLoss.forward): [B, T] pixel-mean
+  ((1/P) sum_x log p[x, m(x)]) so the ratio is O(1).
 
 L_KL    = beta_kl * mean_t KL( pi_theta_t || pi_ref_t )
 
@@ -86,6 +90,34 @@ class GRPOLoss(nn.Module):
 
         loss = pg + self.beta_kl * kl
         return loss
+
+    def dense(
+        self,
+        logp: torch.Tensor,
+        logp_ref: torch.Tensor,
+        advantage: torch.Tensor,
+        kl: torch.Tensor,
+    ) -> torch.Tensor:
+        """Dense per-pixel variant (replaces the pixel-mean path).
+
+        logp / logp_ref: [G, N, H, W] float32 per-pixel log-prob of each
+                         sampled mask (categorical_logp_dense), ref detached
+        advantage:       [G, N, H, W] float32 detached dense group-centered
+                         advantage (dense_pixel_advantage)
+        kl:              [N] float32 exact per-pixel KL(pi||pi_ref), grad —
+                         expanded to [G, N] for the shared KL term
+        All three terms are a plain mean, so the per-pixel normalization
+        carries over unchanged.
+        """
+        logp = logp.float()
+        logp_ref = logp_ref.float().detach()
+        adv = advantage.detach().float()
+
+        ratio = torch.exp((logp - logp_ref).clamp(-20, 20))
+        pg = -(ratio * adv).mean()
+        # KL is per-frame (same for every sample g); expand and mean.
+        kl = kl.float().mean()
+        return pg + self.beta_kl * kl
 
     @staticmethod
     def kl_divergence(logp: torch.Tensor, logp_ref: torch.Tensor) -> float:

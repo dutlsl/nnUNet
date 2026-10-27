@@ -54,8 +54,8 @@ teacher:
   ref_batch: 16            # model_ref self-seg batch size inside each phase0 worker
 
 grpo:
-  group_size: 8            # G per-pixel mask samples sharing one backbone forward
-  temperature: 1.0         # sampling temperature (log_softmax(logits/tau))
+  group_size: 16           # G per-pixel mask samples sharing one backbone forward
+  temperature: 1.5         # sampling temperature (log_softmax(logits/tau))
   gamma_disc: 0.9          # discounted returns
   alpha: 1.0               # teacher-likelihood weight (per-pixel dense)
   beta: 0.0                # temporal consistency (off: reward = teacher likelihood)

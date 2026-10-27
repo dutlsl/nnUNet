@@ -56,7 +56,7 @@ from utils.config import load_config, save_config
 from utils.seed import set_seed
 from datasets.sequence_label_dataset import get_sequence_gazer_dataloaders
 from models.vivim_gazer import VivimGazer
-from rl.grpo import (categorical_logp, teacher_likelihood_reward,
+from rl.grpo import (categorical_logp_dense, dense_pixel_advantage,
                      compute_group_advantage, dice_agreement)
 from losses.grpo_loss import GRPOLoss, pixel_kl
 from sam.teacher import SAM3Teacher, GTTeacher
@@ -416,7 +416,8 @@ def precompute_reward_landscape(cfg, cfg_path: str, train_ds, val_ds,
     keys = sorted(merged)
     n = len(keys)
     print(f"[phase0] {n} unique frames across {num_gpus} GPUs "
-          f"(est ~{n * 0.85 / 3600:.1f}h at ~0.85 s/frame/GPU)", flush=True)
+          f"(est ~{n / num_gpus * 0.85 / 3600:.1f}h at ~0.85 s/frame/GPU)",
+          flush=True)
     logf.write(f"[phase0] {n} unique frames, {num_gpus} GPUs\n"); logf.flush()
 
     items = [(int(k),) + merged[k] for k in keys]
@@ -483,15 +484,19 @@ def grpo_step(model, model_ref, batch, teacher, cfg, device, device_ref_idx,
               amp_dtype, grpo_loss_fn: GRPOLoss, epoch) -> dict:
     """One on-policy GRPO step over the segmentation backbone (plan §7.2).
 
+    DENSE per-pixel variant (2026-10-27): the reward, advantage, and
+    importance ratio are all per-pixel — no pixel-mean collapse.
+
     1) logits [B,T,C,H,W] -> logp = log_softmax(logits/tau)
     2)+(3) ref = teacher.get_window  (eye boxes from model_ref/GT, SAM3 on native)
     4) m^g ~ Cat(p_t) (G samples, ONE backbone forward shared);
-       logpi^g = (1/P) sum_x logp_t(x, m^g);  logpi_ref^g from model_ref (no-grad)
-    5) r^g = alpha * (1/P) sum_x ref_t[x, m^g(x)] (+ beta * TC)
-    6) G_t^g = discounted returns (gamma_disc)
-    7) A_t^g = clip((G - mean_g)/(std_g + 1e-2), +-5)
-    8) L = -mean_g exp(logpi^g - logpi_ref^g) * A^g + beta_kl * mean_t KL_t
-       (exact per-pixel KL); grad -> backbone only.
+       logpi^g(x) = logp_t(x, m^g(x)) per pixel;  logpi_ref^g from model_ref
+    5) r^g(x) = alpha * ref_t[x, m^g(x)]  (+ beta * TC, off in config)
+    6) A^g(x) = clip(r^g(x) - mean_g r^g(x), +-adv_clip)
+       (group-centered RAW; no std norm — confident pixels get A=0 exactly)
+    7) L = -mean exp(logpi^g - logpi_ref^g) * A^g
+          + beta_kl * mean KL( pi_theta || pi_ref )  (exact per-pixel KL)
+       grad -> backbone only.
     """
     images = batch["images"].to(device)          # [B,T,1,H,W]
     gt = batch["gt"].to(device)                  # [B,T,H,W]
@@ -528,58 +533,50 @@ def grpo_step(model, model_ref, batch, teacher, cfg, device, device_ref_idx,
     logp_ref_f = logp_ref.view(N, C, H, W)
     ref_f = ref.view(N, C, H, W)
 
-    # Sample G masks per window (categorical, pixel-wise; Gumbel internally).
+    # Sample G masks (categorical, pixel-wise; Gumbel internally) and gather
+    # per-pixel log-probs and rewards DENSELY — no pixel-mean anywhere.
+    # The old frame-scalar path collapsed the dense per-pixel reward to one
+    # number per frame over ~2e5 pixels; with the near-deterministic semantic
+    # init the G rollouts' frame rewards differed by ~1.6e-4, so the group
+    # z-score (std floor 1e-2) was 60x above the real variance and the
+    # advantage was pure floor noise (policy gradient ~ 0 from ep2 on).
     with torch.no_grad():
-        p_flat = logp_f.permute(0, 2, 3, 1).reshape(-1, C)        # [N*H*W, C]
+        p_flat = logp_f.permute(0, 2, 3, 1).reshape(N * H * W, C)  # [N*H*W, C]
         m = torch.distributions.Categorical(logits=p_flat).sample((G,))
-        m = m.view(G, B, T, H, W)                                 # [G,B,T,H,W]
+        m = m.view(G, N, H, W)                                    # [G,N,H,W]
 
-    alpha = cfg.grpo.alpha
-    beta = cfg.grpo.beta
-    rewards = torch.empty(G, B, T, device=device)
-    logp_g = torch.empty(G, B, T, device=device)
-    logp_ref_g = torch.empty(G, B, T, device=device)
-    for g in range(G):
-        mg = m[g]                                                # [B,T,H,W]
-        mg_f = mg.view(N, H, W)
-        # 5) Dense per-pixel teacher-likelihood reward (detached landscape).
-        r_g = alpha * teacher_likelihood_reward(ref_f, mg_f)     # [N]
-        if beta != 0.0 and T > 1:
-            tc = (mg[:, 1:] == mg[:, :-1]).float().mean(dim=(2, 3))   # [B,T-1]
-            tc = torch.cat([torch.zeros(B, 1, device=device), tc], dim=1)
-            r_g = r_g.view(B, T) + beta * tc
-        rewards[g] = r_g.view(B, T)
-        # 4) Per-sample log-probs (pixel-mean; grad through logp only).
-        logp_g[g] = categorical_logp(logp_f, mg_f).view(B, T)
-        logp_ref_g[g] = categorical_logp(logp_ref_f, mg_f).view(B, T)
-    del m
+    # 4)+(5) Dense per-pixel teacher-likelihood reward, [G,N,H,W] (detached
+    # landscape; grad would flow only through the ratio below).
+    ref_pix = ref_f.permute(0, 2, 3, 1)                           # [N,H,W,C]
+    rewards_pix = cfg.grpo.alpha * ref_pix.unsqueeze(0).expand(G, N, H, W, C) \
+        .gather(4, m.unsqueeze(-1)).squeeze(-1).detach()          # [G,N,H,W]
 
-    # 6)+(7) Discounted returns + group z-score advantage over the G rollouts.
-    rewards_bt = rewards.permute(1, 0, 2)                        # [B,G,T]
-    returns_bt, A_bt = compute_group_advantage(
-        rewards_bt, gamma=cfg.grpo.gamma_disc,
-        adv_eps=cfg.grpo.adv_eps, adv_clip=cfg.grpo.adv_clip)
-    A_g = A_bt.permute(1, 0, 2)                                  # [G,B,T]
+    # 6)+(7) Dense group-centered advantage (raw centering, no std norm —
+    # confident pixels where all G agree get A = 0 exactly).
+    A_dense = dense_pixel_advantage(rewards_pix, adv_clip=cfg.grpo.adv_clip)
 
-    # 8) Loss: policy gradient + exact per-pixel KL anchor (grad -> backbone).
-    kl = pixel_kl(logp.reshape(-1, C, H, W),
-                  logp_ref.reshape(-1, C, H, W)).view(B, T)      # [B,T], grad
-    kl_g = kl.unsqueeze(0).expand(G, B, T)
-    loss = grpo_loss_fn(logp_g.reshape(-1), logp_ref_g.reshape(-1),
-                        A_g.reshape(-1), kl_g.reshape(-1))
+    # Per-pixel log-probs of each sampled mask (grad through logp only).
+    logp_dense = categorical_logp_dense(logp_f, m)                # [G,N,H,W]
+    logp_ref_dense = categorical_logp_dense(logp_ref_f, m)        # [G,N,H,W]
+    del m, ref_pix
+
+    # 8) Loss: dense policy gradient + exact per-pixel KL anchor (grad ->
+    # backbone only; KL uses the full categorical dists, per-frame).
+    kl = pixel_kl(logp_f, logp_ref_f)                             # [N], grad
+    loss = grpo_loss_fn.dense(logp_dense, logp_ref_dense, A_dense, kl)
     loss.backward()
 
     with torch.no_grad():
-        neg_pg = float(-(torch.exp((logp_g - logp_ref_g).clamp(-20, 20))
-                        * A_g.detach()).mean().item())
+        neg_pg = float(-(torch.exp((logp_dense - logp_ref_dense).clamp(-20, 20))
+                        * A_dense).mean().item())
         kl_val = GRPOLoss.kl_divergence(logp_f, logp_ref_f)
         entropy = float(-(logp.exp() * logp).sum(dim=2).mean().item())
     return {
         "grpo/loss": float(loss.item()),
         "grpo/neg_pg": neg_pg,
         "grpo/kl": kl_val,
-        "grpo/adv_std": float(A_g.std().item()),
-        "grpo/reward": float(rewards.mean().item()),
+        "grpo/adv_std": float(A_dense.std().item()),
+        "grpo/reward": float(rewards_pix.mean().item()),
         "grpo/entropy": entropy,
         "gazer/teacher_cache": float(teacher.cache_size),
         "gazer/teacher_miss": float(teacher.cache_misses),
