@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GAZER 진행 리포트 — 2026-10-27 13:29</title>
+<style>
+:root { --bg:#0f1420; --card:#171e2e; --tx:#dce3f0; --mut:#8494ad;
+  --ac:#7c5cff; --ok:#2ecc71; --warn:#f39c12; --bad:#e74c3c; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--tx);
+  font:15px/1.55 'Segoe UI',system-ui,sans-serif; }
+.wrap { max-width:920px; margin:0 auto; padding:28px 18px 60px; }
+h1 { font-size:26px; margin:0 0 4px; }
+h2 { font-size:20px; margin:34px 0 10px; border-bottom:2px solid var(--ac);
+  padding-bottom:6px; }
+h3 { font-size:16px; margin:22px 0 8px; color:#b9c6e0; }
+p { margin:8px 0; }
+table { border-collapse:collapse; margin:10px 0; width:100%; }
+th,td { border:1px solid #2a3550; padding:6px 10px; text-align:left;
+  font-size:14px; }
+th { background:#1d2740; }
+code { background:#1d2740; padding:1px 5px; border-radius:4px;
+  font-size:13px; }
+.card { background:var(--card); border:1px solid #243050; border-radius:10px;
+  padding:16px 18px; margin:12px 0; }
+.note { color:var(--mut); font-size:13.5px; }
+.chart { width:100%; height:auto; }
+.chart .grid { stroke:#243050; stroke-width:1; }
+.chart .ax { fill:var(--mut); font-size:11px; }
+.chart .ln { fill:none; stroke-width:2; }
+.chart .ct { fill:#b9c6e0; font-size:12px; font-weight:600;
+  text-anchor:middle; }
+.chart-empty { color:var(--mut); padding:14px; background:var(--card);
+  border-radius:8px; }
+.verdict { background:#12271c; border:1px solid var(--ok); border-radius:8px;
+  padding:12px 14px; }
+.pending { background:#2a2410; border:1px solid var(--warn); border-radius:8px;
+  padding:10px 14px; }
+.kpi { background:var(--card); border:1px solid #243050; border-radius:8px;
+  padding:10px 12px; }
+.kv { display:block; font-size:22px; font-weight:700; color:var(--ac); }
+.kl { color:var(--mut); font-size:13px; }
+.diaggrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.badge { display:inline-block; font-size:12px; padding:2px 10px;
+  border-radius:20px; margin-right:6px; }
+.b-done { background:#12271c; color:var(--ok); border:1px solid var(--ok); }
+.b-run { background:#2a2410; color:var(--warn); border:1px solid var(--warn); }
+.b-wait { background:var(--card); color:var(--mut); border:1px solid var(--mut); }
+</style></head><body><div class="wrap">
+<h1>GAZER 진행 리포트</h1>
+<p class="note">생성: 2026-10-27 13:29 · AutoGaze × GRPO — OpenEDS2019 label-scarce 시퀀스
+분할 · SAM3 live teacher · 정책 = 분할 backbone 그 자체 (plan §7) ·
+데이터 소스: gazer_bench.json / gazer_grpo_backbone_t5.log / gazer_eval_compare.json</p>
+
+<h2>연구 목표 (3단계)</h2>
+<div class="card">
+<table>
+<tr><th>#</th><th>목표</th><th>본 리포트 내 대응</th></tr>
+<tr><td>1</td><td><b>VLM(SAM3)을 삼아 베이스라인의 수도라벨 의존성 없애기</b> —
+semantic fold_1 초기화 + SAM3 soft4 reward-landscape로 pseudo-label 없이
+시퀀스 도메인 적응</td>
+  <td>§3 (SAM3 teacher + reward landscape) · §3a (동일 지표로 베이스라인
+  비교 — 수도라벨 의존 탈피 검증)</td></tr>
+<tr><td>2</td><td><b>RL(GRPO/PPO) 튜닝으로 시퀀스 세미지도 학습</b> —
+정책 = 분할 backbone, per-pixel mask가 action, dense teacher-likelihood
+reward로 on-policy GRPO</td>
+  <td>§3-2 (dense per-pixel GRPO 신호 복원) · §3-3 (학습 로그 수치)</td></tr>
+<tr><td>3</td><td><b>최종 스테이지: VLM+RL 가중치 + Annealing된 경량 모델</b> —
+RL 보상이 유지되도록 연산 병목 모듈을 annealing</td>
+  <td>§2 (병목 = CNN decoder 확인) · §4 (decoder-centric annealing +
+  KL 스튜던트로 RL 보상 유지 제안)</td></tr>
+</table>
+</div>
+
+<h2>실행 계획 (5단계) 현황</h2>
+<table>
+<tr><th>#</th><th>단계</th><th>상태</th><th>요약</th></tr>
+<tr><td>1</td><td>버전관리</td>
+  <td><span class="badge b-done">완료</span></td>
+  <td>fork(dutlsl) push + GAZER 전용 태그 v4.0.0-gazer / v4.0.1-gazer-dense</td></tr>
+<tr><td>2</td><td>스트레스 테스트 (병목 검증)</td>
+  <td><span class="badge b-done">완료 — 가설 확인</span></td>
+  <td>CNN : Mamba3 FLOPs = 21.4:1, wall time 61% = CNN decoder</td></tr>
+<tr><td>3</td><td>성능 진단 + 최적 파라미터</td>
+  <td><span class="badge b-run">진행 중</span></td>
+  <td>신호 소실 진단 → dense per-pixel GRPO + τ1.5/G16 적용, 재학습 대기</td></tr>
+<tr><td>4</td><td>경량화 + Annealing 제안</td>
+  <td><span class="badge b-wait">조건부 대기</span></td>
+  <td>decoder 중심 annealing 초안 준비 완료 — baseline 초과 게이트 대기 (3a)</td></tr>
+<tr><td>5</td><td>HTML 리포트</td>
+  <td><span class="badge b-done">본 문서</span></td>
+  <td><code>tools/gazer_report.py</code>로 재생성 (eval 결과 반영 가능)</td></tr>
+</table>
+
+<h2>1. 버전관리</h2>
+<div class="card">
+<p>브랜치 <code>backbone</code> → <code>github.com/dutlsl/nnUNet</code> (push 완료)</p>
+<table><tr><th>GAZER 태그</th></tr><tr><td><code>v4.0.0-gazer</code></td></tr><tr><td><code>v4.0.1-gazer-dense</code></td></tr><tr><td><code>v4.0.2-gazer-report</code></td></tr></table>
+<table><tr><th>최근 커밋</th></tr><tr><td><code>7f1a81046 docs(gazer): step-5 HTML report + generator (bench/VAL/eval-compare driven)</code></td></tr><tr><td><code>8c6c31831 feat(gazer): dense per-pixel GRPO path + τ 1.5/G 16 (signal-decay fix)</code></td></tr><tr><td><code>17a8f672b chore(tools): GAZER ops tooling (watchdog, event logger, teacher-input verify)</code></td></tr><tr><td><code>30d3c6f3e feat(gazer): AutoGaze x GRPO on-policy tuning of the segmentation backbone (plan §7)</code></td></tr><tr><td><code>e6a39764e feat(weights): add T=3, T=7, and new all-time record T=8 best checkpoints</code></td></tr></table></div>
+
+<h2>2. 스트레스 테스트 — 병목 원상 확인</h2>
+<div class="card">
+<h3>2-1. FLOPs (B=1, T=5, 448×448) — 모듈별</h3>
+<svg viewBox="0 0 560 196.0" class="chart"><text x="90" y="10.8" class="ax" text-anchor="end">dec3</text><rect x="96" y="2.0" width="394.0" height="9.0" rx="2" fill="#3f8cff"/><text x="495.0" y="10.8" class="ax">55.5 GF</text><text x="90" y="25.8" class="ax" text-anchor="end">dec2</text><rect x="96" y="17.0" width="394.0" height="9.0" rx="2" fill="#3f8cff"/><text x="495.0" y="25.8" class="ax">55.5 GF</text><text x="90" y="40.8" class="ax" text-anchor="end">dec1</text><rect x="96" y="32.0" width="394.0" height="9.0" rx="2" fill="#3f8cff"/><text x="495.0" y="40.8" class="ax">55.5 GF</text><text x="90" y="55.8" class="ax" text-anchor="end">enc2</text><rect x="96" y="47.0" width="197.0" height="9.0" rx="2" fill="#3f8cff"/><text x="298.0" y="55.8" class="ax">27.7 GF</text><text x="90" y="70.8" class="ax" text-anchor="end">enc3</text><rect x="96" y="62.0" width="197.0" height="9.0" rx="2" fill="#3f8cff"/><text x="298.0" y="70.8" class="ax">27.7 GF</text><text x="90" y="85.8" class="ax" text-anchor="end">bottleneck</text><rect x="96" y="77.0" width="197.0" height="9.0" rx="2" fill="#3f8cff"/><text x="298.0" y="85.8" class="ax">27.7 GF</text><text x="90" y="100.8" class="ax" text-anchor="end">enc1</text><rect x="96" y="92.0" width="135.4" height="9.0" rx="2" fill="#3f8cff"/><text x="236.4" y="100.8" class="ax">19.1 GF</text><text x="90" y="115.8" class="ax" text-anchor="end">up1</text><rect x="96" y="107.0" width="117.0" height="9.0" rx="2" fill="#3f8cff"/><text x="218.0" y="115.8" class="ax">16.5 GF</text><text x="90" y="130.8" class="ax" text-anchor="end">up2</text><rect x="96" y="122.0" width="116.9" height="9.0" rx="2" fill="#3f8cff"/><text x="217.9" y="130.8" class="ax">16.5 GF</text><text x="90" y="145.8" class="ax" text-anchor="end">up3</text><rect x="96" y="137.0" width="116.8" height="9.0" rx="2" fill="#3f8cff"/><text x="217.8" y="145.8" class="ax">16.4 GF</text><text x="90" y="160.8" class="ax" text-anchor="end">mamba3</text><rect x="96" y="152.0" width="105.6" height="9.0" rx="2" fill="#7c5cff"/><text x="206.6" y="160.8" class="ax">14.9 GF</text><text x="90" y="175.8" class="ax" text-anchor="end">final_cls</text><rect x="96" y="167.0" width="1.9" height="9.0" rx="2" fill="#3f8cff"/><text x="102.9" y="175.8" class="ax">0.3 GF</text></svg>
+<p class="note">총 333.3 GFLOP 중 <b>CNN 318.4 / Mamba3 14.9
+→ CNN : Mamba3 = 21.4 : 1</b> (매개변수 2.40M).</p>
+<h3>2-2. Wall time (B=1, T=5, bf16) — 단계별 비율</h3>
+<ul>
+<li>CNN encoder (448→56): <b>4.58 ms (26%)</b>,
+effective 22.3 TFLOP/s</li>
+<li>Mamba3 (T=5): <b>2.25 ms (13%)</b>,
+effective 6.5 TFLOP/s — T 스윕: T1 1.67 /
+T5 2.25 / T8 2.37 ms (거의 평탄, 고정 오버헤드 지배)</li>
+<li>CNN decoder (56→448): <b>10.84 ms (61%)</b>,
+effective 19.9 TFLOP/s</li>
+</ul>
+<h3>2-3. Throughput</h3>
+<table>
+<tr><th>모드</th><th>소요/프레임</th><th>FPS</th><th>비고</th></tr>
+<tr><td>학습용 (T=5 전체 프레임, B=2, mamba ON)</td><td>30.1 ms</td><td>—</td><td>33.2 window/s</td></tr>
+<tr><td>스트리밍 (B=1, FIFO, mamba ON)</td><td>5.03 ms</td><td><b>198.7</b></td><td>120Hz 목표 초과</td></tr>
+<tr><td>스트리밍 (B=1, FIFO, mamba OFF)</td><td>3.18 ms</td><td>314.2</td><td>mamba 기여 1.85 ms/프레임</td></tr>
+</table>
+<h3>2-4. 판정</h3>
+<div class="verdict">가설 <b>확인</b>: 연산 병목은 Mamba3가 아니라 <b>CNN</b>.
+FLOPs 21.4:1, wall time의 61%는 <b>CNN decoder</b> (dec1/2/3 각각
+55 GFLOP — 전체 forward의 1/3). Mamba3는 스트리밍 프레임당
++1.85 ms만 기여하고,
+현재 모델은 이미 120Hz 실시간 목표(199 FPS)를 충족.
+→ <b>4단계(경량화)의 annealing 대상 = CNN decoder</b>.</div></div>
+
+<h2>3. 성능 진단·수정 + 동일 지표 비교</h2>
+<div class="card">
+<h3>3-1. 진단: 신호 소실 (10-26 런, ep1–9 로그 수치)</h3>
+<div class="diaggrid">
+<div class="kpi"><span class="kv">0.016</span><span class="kl">adv_std (ep2+)
+— 설계 플러 <code>adv_eps=0.01</code>에 근접</span></div>
+<div class="kpi"><span class="kv">≈1.6e-4</span><span class="kl">그룹 reward
+표준편차 (adv_std 역산) — 플러의 1/60</span></div>
+<div class="kpi"><span class="kv">~5e-4</span><span class="kl">grad/norm
+(ep2+) — ep1 초기 0.17의 1/300</span></div>
+<div class="kpi"><span class="kv">0.0014–0.0021</span><span class="kl">
+grpo/kl (ep2+) — KL 앵커만 동작, PG≈0</span></div>
+</div>
+<p><b>원인</b>: semantic fold_1 초기값이 near-deterministic(픽셀 엔트로피
+0.014 nats) → G개 롤아웃의 <i>프레임 스칼라</i> reward 차이가 1.6e-4에 불과
+→ z-score advantage의 std floor(1e-2)가 실제 변동의 60배 → advantage가
+플러 노이즈. §7.2의 per-pixel dense reward가 ~2×10⁵ 픽셀 <i>pixel-mean
+평균으로 프레임 1개로 붕괴</i>하면서 "프레임 스칼라보다 좋은 credit
+assignment"라는 본질적 장점이 소실된 것이 구조적 원인.</p>
+<h3>3-2. 수정 (v4.0.1-gazer-dense, 아키텍처 불변)</h3>
+<table>
+<tr><th>항목</th><th>Before</th><th>After</th></tr>
+<tr><td>reward</td><td>프레임 스칼라 (pixel-mean)</td>
+    <td><b>per-pixel dense</b> [G,N,H,W]</td></tr>
+<tr><td>advantage</td><td>z-score (std floor 1e-2)</td>
+    <td><b>raw group-centering</b> clip(r−mean_g r, ±5) — 확신 픽셀 A=0
+    정확, 경계 픽셀만 O(1)</td></tr>
+<tr><td>importance ratio</td><td>pixel-mean logp</td>
+    <td><b>per-pixel</b> logp (categorical_logp_dense)</td></tr>
+<tr><td>τ</td><td>1.0</td><td><b>1.5</b></td></tr>
+<tr><td>G</td><td>8</td><td><b>16</b> (forward 공유 → 비용 +0)</td></tr>
+<tr><td>KL</td><td colspan="2">per-pixel exact (불변, GRPOLoss.dense에 합침)</td></tr>
+</table>
+<p class="note">Phase 1 smoke: ALL 6 CHECKS PASS (dense grpo_step×2+옵티마이저,
+EMA, split 전환, validate, SAM3 miss 폴백, ckpt 저장/로드).</p>
+<h3>3-3. 10-26 런 기록 (신호 소실 전후)</h3>
+<svg viewBox="0 0 560 220" class="chart"><text x="280.0" y="14" class="ct">VAL agreement (SAM3 teacher 기준)</text><line x1="58" y1="190.0" x2="546" y2="190.0" class="grid"/><text x="52" y="193.0" class="ax" text-anchor="end">0.7763</text><line x1="58" y1="149.0" x2="546" y2="149.0" class="grid"/><text x="52" y="152.0" class="ax" text-anchor="end">0.7767</text><line x1="58" y1="108.0" x2="546" y2="108.0" class="grid"/><text x="52" y="111.0" class="ax" text-anchor="end">0.7771</text><line x1="58" y1="67.0" x2="546" y2="67.0" class="grid"/><text x="52" y="70.0" class="ax" text-anchor="end">0.7775</text><line x1="58" y1="26.0" x2="546" y2="26.0" class="grid"/><text x="52" y="29.0" class="ax" text-anchor="end">0.7779</text><text x="58.0" y="212" class="ax" text-anchor="middle">1</text><text x="127.7" y="212" class="ax" text-anchor="middle">2</text><text x="197.4" y="212" class="ax" text-anchor="middle">3</text><text x="267.1" y="212" class="ax" text-anchor="middle">4</text><text x="336.9" y="212" class="ax" text-anchor="middle">5</text><text x="406.6" y="212" class="ax" text-anchor="middle">6</text><text x="476.3" y="212" class="ax" text-anchor="middle">7</text><text x="546.0" y="212" class="ax" text-anchor="middle">8</text><path d="M58.0,178.7 L127.7,168.6 L197.4,128.2 L267.1,108.0 L336.9,87.8 L406.6,67.6 L476.3,57.5 L546.0,37.3" class="ln" stroke="#2ecc71"/><circle cx="546.0" cy="37.3" r="3.2" fill="#2ecc71"/><text x="544" y="31.3" class="ax" text-anchor="end" fill="#2ecc71">val/agreement_teacher 0.7778</text></svg>
+<svg viewBox="0 0 560 220" class="chart"><text x="280.0" y="14" class="ct">grad/norm · grpo/kl (ep 진행)</text><line x1="58" y1="190.0" x2="546" y2="190.0" class="grid"/><text x="52" y="193.0" class="ax" text-anchor="end">-0.0134</text><line x1="58" y1="149.0" x2="546" y2="149.0" class="grid"/><text x="52" y="152.0" class="ax" text-anchor="end">0.0370</text><line x1="58" y1="108.0" x2="546" y2="108.0" class="grid"/><text x="52" y="111.0" class="ax" text-anchor="end">0.0873</text><line x1="58" y1="67.0" x2="546" y2="67.0" class="grid"/><text x="52" y="70.0" class="ax" text-anchor="end">0.1376</text><line x1="58" y1="26.0" x2="546" y2="26.0" class="grid"/><text x="52" y="29.0" class="ax" text-anchor="end">0.1880</text><text x="58.0" y="212" class="ax" text-anchor="middle">1</text><text x="119.0" y="212" class="ax" text-anchor="middle">2</text><text x="180.0" y="212" class="ax" text-anchor="middle">3</text><text x="241.0" y="212" class="ax" text-anchor="middle">4</text><text x="302.0" y="212" class="ax" text-anchor="middle">5</text><text x="363.0" y="212" class="ax" text-anchor="middle">6</text><text x="424.0" y="212" class="ax" text-anchor="middle">7</text><text x="485.0" y="212" class="ax" text-anchor="middle">8</text><text x="546.0" y="212" class="ax" text-anchor="middle">9</text><path d="M58.0,37.3 L58.0,152.7 L58.0,159.4 L58.0,162.8 L58.0,164.5 L58.0,165.7 L58.0,166.9 L119.0,178.5 L119.0,178.3 L119.0,178.2 L119.0,178.2 L119.0,178.2 L119.0,178.2 L119.0,178.3 L180.0,178.4 L180.0,178.4 L180.0,178.4 L180.0,178.4 L180.0,178.4 L180.0,178.4 L180.0,178.4 L241.0,178.5 L241.0,178.5 L241.0,178.5 L241.0,178.5 L241.0,178.5 L241.0,178.5 L302.0,178.6 L302.0,178.6 L302.0,178.6 L302.0,178.6 L302.0,178.6 L302.0,178.6 L302.0,178.6 L363.0,178.7 L363.0,178.6 L363.0,178.6 L363.0,178.6 L363.0,178.6 L363.0,178.7 L363.0,178.7 L424.0,178.6 L424.0,178.6 L424.0,178.6 L424.0,178.6 L424.0,178.6 L424.0,178.6 L485.0,178.7 L485.0,178.6 L485.0,178.6 L485.0,178.6 L485.0,178.6 L485.0,178.6 L485.0,178.6 L546.0,178.6 L546.0,178.6 L546.0,178.6 L546.0,178.6 L546.0,178.6 L546.0,178.6 L546.0,178.6" class="ln" stroke="#e74c3c"/><circle cx="546.0" cy="178.6" r="3.2" fill="#e74c3c"/><text x="544" y="172.6" class="ax" text-anchor="end" fill="#e74c3c">grad/norm 0.0006</text><path d="M58.0,150.6 L58.0,168.7 L58.0,170.3 L58.0,171.2 L58.0,171.7 L58.0,172.0 L58.0,172.3 L119.0,176.2 L119.0,175.8 L119.0,175.6 L119.0,175.6 L119.0,175.5 L119.0,175.6 L119.0,175.6 L180.0,176.4 L180.0,176.4 L180.0,176.4 L180.0,176.4 L180.0,176.4 L180.0,176.4 L180.0,176.5 L241.0,176.9 L241.0,176.8 L241.0,177.0 L241.0,177.0 L241.0,177.0 L241.0,177.0 L302.0,177.2 L302.0,177.2 L302.0,177.3 L302.0,177.3 L302.0,177.3 L302.0,177.3 L302.0,177.4 L363.0,177.5 L363.0,177.5 L363.0,177.5 L363.0,177.5 L363.0,177.5 L363.0,177.5 L363.0,177.6 L424.0,177.6 L424.0,177.7 L424.0,177.7 L424.0,177.7 L424.0,177.7 L424.0,177.7 L485.0,177.9 L485.0,177.8 L485.0,177.8 L485.0,177.8 L485.0,177.8 L485.0,177.8 L485.0,177.8 L546.0,177.8 L546.0,177.8 L546.0,177.8 L546.0,177.9 L546.0,177.9 L546.0,177.9 L546.0,177.9" class="ln" stroke="#f39c12"/><circle cx="546.0" cy="177.9" r="3.2" fill="#f39c12"/><text x="544" y="171.9" class="ax" text-anchor="end" fill="#f39c12">grpo/kl 0.0015</text></svg>
+<svg viewBox="0 0 560 220" class="chart"><text x="280.0" y="14" class="ct">adv_std · reward</text><line x1="58" y1="190.0" x2="546" y2="190.0" class="grid"/><text x="52" y="193.0" class="ax" text-anchor="end">-0.0462</text><line x1="58" y1="149.0" x2="546" y2="149.0" class="grid"/><text x="52" y="152.0" class="ax" text-anchor="end">0.1785</text><line x1="58" y1="108.0" x2="546" y2="108.0" class="grid"/><text x="52" y="111.0" class="ax" text-anchor="end">0.4032</text><line x1="58" y1="67.0" x2="546" y2="67.0" class="grid"/><text x="52" y="70.0" class="ax" text-anchor="end">0.6279</text><line x1="58" y1="26.0" x2="546" y2="26.0" class="grid"/><text x="52" y="29.0" class="ax" text-anchor="end">0.8526</text><text x="58.0" y="212" class="ax" text-anchor="middle">1</text><text x="119.0" y="212" class="ax" text-anchor="middle">2</text><text x="180.0" y="212" class="ax" text-anchor="middle">3</text><text x="241.0" y="212" class="ax" text-anchor="middle">4</text><text x="302.0" y="212" class="ax" text-anchor="middle">5</text><text x="363.0" y="212" class="ax" text-anchor="middle">6</text><text x="424.0" y="212" class="ax" text-anchor="middle">7</text><text x="485.0" y="212" class="ax" text-anchor="middle">8</text><text x="546.0" y="212" class="ax" text-anchor="middle">9</text><path d="M58.0,178.6 L58.0,178.7 L58.0,178.7 L58.0,178.7 L58.0,178.7 L58.0,178.7 L58.0,178.7 L119.0,178.6 L119.0,178.7 L119.0,178.7 L119.0,178.7 L119.0,178.7 L119.0,178.7 L119.0,178.7 L180.0,178.7 L180.0,178.7 L180.0,178.7 L180.0,178.7 L180.0,178.7 L180.0,178.7 L180.0,178.7 L241.0,178.7 L241.0,178.7 L241.0,178.7 L241.0,178.7 L241.0,178.7 L241.0,178.7 L302.0,178.7 L302.0,178.7 L302.0,178.7 L302.0,178.7 L302.0,178.7 L302.0,178.7 L302.0,178.7 L363.0,178.7 L363.0,178.7 L363.0,178.7 L363.0,178.7 L363.0,178.7 L363.0,178.7 L363.0,178.7 L424.0,178.7 L424.0,178.7 L424.0,178.7 L424.0,178.7 L424.0,178.7 L424.0,178.7 L485.0,178.7 L485.0,178.7 L485.0,178.7 L485.0,178.7 L485.0,178.7 L485.0,178.7 L485.0,178.7 L546.0,178.7 L546.0,178.7 L546.0,178.7 L546.0,178.7 L546.0,178.7 L546.0,178.7 L546.0,178.7" class="ln" stroke="#9b59b6"/><circle cx="546.0" cy="178.7" r="3.2" fill="#9b59b6"/><text x="544" y="172.7" class="ax" text-anchor="end" fill="#9b59b6">grpo/adv_std 0.0160</text><path d="M58.0,39.2 L58.0,38.0 L58.0,38.0 L58.0,37.9 L58.0,37.9 L58.0,37.9 L58.0,37.8 L119.0,38.0 L119.0,37.6 L119.0,37.7 L119.0,37.8 L119.0,37.9 L119.0,37.9 L119.0,37.8 L180.0,37.9 L180.0,37.5 L180.0,37.7 L180.0,37.8 L180.0,37.8 L180.0,37.9 L180.0,37.9 L241.0,37.5 L241.0,37.7 L241.0,37.9 L241.0,37.8 L241.0,37.8 L241.0,37.8 L302.0,38.3 L302.0,37.9 L302.0,37.8 L302.0,37.8 L302.0,37.8 L302.0,37.8 L302.0,37.8 L363.0,37.6 L363.0,37.7 L363.0,37.8 L363.0,37.8 L363.0,37.7 L363.0,37.7 L363.0,37.7 L424.0,37.6 L424.0,37.5 L424.0,37.5 L424.0,37.7 L424.0,37.7 L424.0,37.8 L485.0,37.3 L485.0,38.0 L485.0,37.7 L485.0,37.7 L485.0,37.7 L485.0,37.7 L485.0,37.7 L546.0,38.2 L546.0,38.0 L546.0,37.8 L546.0,37.8 L546.0,37.7 L546.0,37.8 L546.0,37.7" class="ln" stroke="#3498db"/><circle cx="546.0" cy="37.7" r="3.2" fill="#3498db"/><text x="544" y="31.7" class="ax" text-anchor="end" fill="#3498db">grpo/reward (pixel-mean) 0.7884</text></svg>
+<p class="note">grad/norm·KL이 ep2부터 바닥(플러 노이즈) — 위 진단의 시각화.
+VAL은 KL 앵커+미세 신호로 0.7764→0.7778 완만 상승.</p>
+<h3>3-4. 동일 지표 베이스라인 비교 (3a)</h3>
+<div class="pending">측정 중 — <code>tools/gazer_eval_compare.py</code>
+(val-only SAM3 landscape ~2h → 3개 모델 VAL 패스). 완료 시 이 스크립트 재실행하면 자동 반영:</div>
+<table><tr><th>모델</th><th>agreement</th></tr>
+<tr><td>gazer_ep9 (GRPO 8ep, 10-26 런)</td><td>대기</td></tr>
+<tr><td>init_fold1 (semantic 초기화 = ep0)</td><td>대기</td></tr>
+<tr><td>baseline_400 (pseudo-label 시퀀스 학습)</td><td>대기</td></tr>
+</table>
+<p class="note">참고: baseline의 공식 수치 val_dice <b>0.8962</b>는 <i>수도라벨 대비</i>
+Dice, GAZER의 0.7778은 <i>SAM3 landscape 대비</i> agreement — 지표가 다르므로
+동일 지표 원샷 비교를 시행 중. (per-class: BG 0.9829 / Sclera 0.8947 /
+Iris 0.8654 / Pupil 0.8417)</p>
+<h3>3-5. 재기동 상태</h3>
+<p>10-27 12:52 KST: dense 경로 적용 후 자동 순서 오케스트레이션 —
+eval-compare(~2h) 종료 → watchdog 재기동(phase0 ~8.7h) → 150 ep.
+성공 확인 기준: ep1 <code>adv_std ≫ 0.016</code>, <code>neg_pg ≠ 0</code>,
+grad/norm ~0.17 복귀.</p></div>
+
+<h2>4. 경량화 + Annealing 방안 (개문 조건부)</h2>
+<div class="card">
+<h3>4-1. Annealing 대상: CNN decoder (bench 판정 기반)</h3>
+<ul>
+<li><b>채널 축소</b> dec1/2/3 (각 55.5 GFLOP → base_channels 32를 decoder만 16으로
+채널 ½, decoder FLOPs ¼ ≈ 10.1 GFLOP/레이어 절감)</li>
+<li><b>권중 양자화</b> W8A16 (decoder conv만 적용; mamba3는 Triton 커널이라
+동결) — 3090에서 INT8 conv는 ~2× 속도</li>
+<li><b>skip concat 제거</b> (dec의 cat→conv 대 cat 전 단계의 1×1 conv 압축 —
+채널 수 유지하면서 concat 오버헤드 절반)</li>
+</ul>
+<h3>4-2. RL 보상 유지 방식</h3>
+<ul>
+<li>annealed student S'를 GAZER 최종 policy P*의 <b>KL 스튜던트</b>로 훈련:
+    <code>min KL(S'‖P*) + λ·(1 − reward_teacher(S'))</code> — GRPO의
+    teacher-likelihood reward를 그대로 objective로 유지 (정적 라벨 피팅 아님)</li>
+<li>검증 게이트: annealing 전/후 <b>동일 VAL</b>에서
+    <code>agreement_teacher</code> 차이가 0.01 미만이면 통과
+    (0.8962 초과 시 적용 전제)</li>
+</ul>
+<div class="pending">개문 조건: 3a 동일 지표 비교에서 GAZER ≥ baseline_400.
+현재 0.7778 vs 0.8962는 지표가 달라 무효 — 3a 결과 대기.</div></div>
+
+<h2>5. 리포트 재생성</h2>
+<div class="card"><p>
+<code>nnunet_env/bin/python tools/gazer_report.py</code> —
+bench/eval-compare JSON과 학습 로그를 읽어 본 문서를 재생성한다.
+eval-compare(JSON) 완료 후 1회 재실행하면 3a 표와 4단계 개문 판정이 자동 반영된다.</p></div>
+</div></body></html>
