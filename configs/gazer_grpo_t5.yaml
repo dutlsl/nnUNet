@@ -1,0 +1,91 @@
+# GAZER: on-policy GRPO tuning of the SEGMENTATION BACKBONE (plan §7).
+# Policy pi_theta = the Mamba3 Vivim backbone itself (unfrozen, semantic
+# fold_1 init); action = per-frame segmentation mask; reward = per-pixel
+# DENSE teacher-likelihood, recomputed on-policy at every step.
+# Teacher: LIVE SAM3 multi-prompt (text + eye bbox + point) as a fixed reward
+# landscape (RAM-cached, NOT a static supervision target); GT one-hot where
+# has_gt. No NTP stage (ntp_epochs = 0; the has_gt==0 oracle degenerates).
+# GPUs: 0 = policy backbone (grad) + optimizer, 1 = SAM3 teacher + model_ref
+
+ablation:
+  use_mamba: true
+  mamba_version: "mamba3"
+  use_gazer: false           # GazerHead off (plan §7.3): policy = backbone
+  use_kd: false
+  use_quality_head: false
+
+data:
+  dataset: sequence_gazer
+  sequence_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Sequence_Extracted
+  semantic_gt_root: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/Semantic_Segmentation_Dataset
+  temporal_window: 5
+  preprocessing: ritnet
+  target_resolution: [448, 448]
+  input_crop: [120, 520, 0, 400]
+  padding: 48
+
+model:
+  backbone: vivim_gazer
+  base_channels: 32
+  num_classes: 4
+  mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+    headdim: 64
+  gazer:
+    d_z: 256
+    n_transformer_layers: 2
+    pool_size: 14
+    hidden: 256
+  pretrained_checkpoint: /home/iulab1/PycharmProjects/nnUNet/nnUNet_results/Dataset600_OpenEDS2019/nnUNetTrainer_Vivim_T5__nnUNetPlans__2d/fold_1/checkpoint_best.pth
+
+teacher:
+  name: sam3
+  device: cuda:1
+  cache_dir: /home/iulab1/PycharmProjects/nnUNet/Openedsdata2019/sam3_cache
+  prompts:                 # per-class prompt set (M0 30-frame GT Dice)
+    - "sclera of the eye"  # +box+point 0.607 -> eye box + point box
+    - "the iris"           # +box 0.655 -> eye box only
+    - "pupil of the eye"   # text-only 0.948 -> text-only (any box fills the whole eye)
+  use_geom: true           # per-class: sclera box+point, iris box, pupil text-only
+  max_cache_frames: 73800  # in-RAM fp16 reward-landscape cache (~118GB < 251GB RAM)
+  precompute: true         # Phase 0: build the full reward landscape before training
+  ref_batch: 16            # model_ref self-seg batch size inside each phase0 worker
+
+grpo:
+  group_size: 8            # G per-pixel mask samples sharing one backbone forward
+  temperature: 1.0         # sampling temperature (log_softmax(logits/tau))
+  gamma_disc: 0.9          # discounted returns
+  alpha: 1.0               # teacher-likelihood weight (per-pixel dense)
+  beta: 0.0                # temporal consistency (off: reward = teacher likelihood)
+  lambda_q: 0.0            # quality head off
+  adv_eps: 0.01            # group-std floor
+  adv_clip: 5.0            # advantage magnitude clip
+  beta_kl: 0.05
+  kl_schedule: [0.05, 0.01]   # exact per-pixel KL anchor, anneal over the run
+  ref_ema_tau: 0.99
+  ntp_epochs: 0            # no NTP stage (GRPO only)
+  grpo_epochs: 150
+
+training:
+  batch_size: 2
+  epochs: 150
+  lr: 0.0002
+  backbone_lr: 0.0001      # policy backbone (plan §7.3 item 6)
+  weight_decay: 0.0001
+  precision: bf16
+  max_grad_norm: 1.0
+  num_workers: 4
+  log_every: 25
+  early_stopping:
+    patience: 30
+    min_epochs: 20
+
+experiment:
+  name: gazer_grpo_t5
+  seed: 42
+
+logging:
+  wandb_project: eyeball-3d
+  wandb_run_prefix: gazer_grpo_t5

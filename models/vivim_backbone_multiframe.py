@@ -135,11 +135,13 @@ class VivimBackboneMultiFrame(nn.Module):
         d1 = self.dec1(torch.cat([d1, e1_feat], dim=1))
         return self.final_cls(d1)
 
-    def forward(self, x, output_all_frames=False):
+    def forward(self, x, output_all_frames=False, return_b_mamba=False, encode_only=False):
         """
         Args:
             x: [B, T, C, H, W] or [B, C, H, W] (single frame)
             output_all_frames: if True, decode all T frames → [B, T, Cls, H, W]
+            return_b_mamba: if True, return (output, b_mamba [B, T, C_b, H_b, W_b])
+            encode_only: if True, return b_mamba [B, T, C_b, H_b, W_b] without decoding
         Returns:
             output_all_frames=False: [B, Cls, H, W]  (last frame only — inference mode)
             output_all_frames=True:  [B, T, Cls, H, W] (all frames — training mode)
@@ -150,7 +152,7 @@ class VivimBackboneMultiFrame(nn.Module):
         B, T, C, H, W = x.shape
 
         # 1. Multi-frame training / decoding path
-        if output_all_frames or self.training or not self.use_fifo_cache:
+        if output_all_frames or self.training or not self.use_fifo_cache or encode_only:
             x_flat = x.view(B * T, C, H, W)
             e1 = self.enc1(x_flat)
             p1 = self.pool1(e1)
@@ -167,9 +169,29 @@ class VivimBackboneMultiFrame(nn.Module):
             else:
                 b_mamba = b.view(B, T, C_b, H_b, W_b)
 
+            # Early-exit for GAZER policy head / encode-only paths
+            if encode_only:
+                return b_mamba
+
             e3_all = e3.view(B, T, -1, H // 4, W // 4)
             e2_all = e2.view(B, T, -1, H // 2, W // 2)
             e1_all = e1.view(B, T, -1, H, W)
+
+            if return_b_mamba and not output_all_frames:
+                out = self._decode_single_frame(
+                    b_mamba[:, -1], e3_all[:, -1], e2_all[:, -1], e1_all[:, -1])
+                return out, b_mamba
+
+            if return_b_mamba:
+                outputs_bm = []
+                for t in range(T):
+                    out_t = torch.utils.checkpoint.checkpoint(
+                        self._decode_single_frame,
+                        b_mamba[:, t], e3_all[:, t], e2_all[:, t], e1_all[:, t],
+                        use_reentrant=False,
+                    )
+                    outputs_bm.append(out_t)
+                return torch.stack(outputs_bm, dim=1), b_mamba
 
             if not output_all_frames:
                 # Inference on multi-frame input: warm up cache
