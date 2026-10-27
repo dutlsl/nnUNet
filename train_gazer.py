@@ -434,6 +434,7 @@ def precompute_reward_landscape(cfg, cfg_path: str, train_ds, val_ds,
 
     cache = {}
     expected = n
+    done_workers = set()   # gpu_idx whose __DONE__ arrived
     t0 = time.time()
     while len(cache) < expected:
         # Timeout get() instead of a bare blocking get(): if a worker dies
@@ -443,15 +444,25 @@ def precompute_reward_landscape(cfg, cfg_path: str, train_ds, val_ds,
             item = result_q.get(timeout=1.0)
         except queue.Empty:
             for gi, p in enumerate(procs):
-                if not p.is_alive():
-                    while not err_q.empty():
-                        print(err_q.get(), flush=True)
-                    p.join()
-                    raise RuntimeError(
-                        f"phase0 GPU{gi} worker died (exitcode={p.exitcode}) "
-                        f"at {len(cache)}/{expected} frames")
+                if p.is_alive():
+                    continue
+                # A cleanly-finished worker (exitcode==0, __DONE__ seen) is
+                # NOT a crash: it delivered its assigned chunk and the
+                # remaining frames come from the other worker(s). The
+                # finished-first worker vs. the still-working one is a
+                # normal race at phase0 end — keep draining the queue.
+                if p.exitcode == 0 and gi in done_workers:
+                    continue
+                while not err_q.empty():
+                    print(err_q.get(), flush=True)
+                p.join()
+                raise RuntimeError(
+                    f"phase0 GPU{gi} worker died (exitcode={p.exitcode}) "
+                    f"at {len(cache)}/{expected} frames "
+                    f"(__DONE__={gi in done_workers})")
             continue
         if item[0] == "__DONE__":
+            done_workers.add(item[1])
             continue
         key, soft = item
         cache[str(key)] = torch.from_numpy(soft)

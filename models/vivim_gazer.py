@@ -37,6 +37,8 @@ class VivimGazer(nn.Module):
         mamba_version="mamba3",
         temporal_window=5,
         use_fifo_cache=True,
+        dec_base=None,
+        enc_base=None,
         gazer_d_z=256,
         gazer_n_transformer_layers=2,
         gazer_pool_size=14,
@@ -57,6 +59,8 @@ class VivimGazer(nn.Module):
             mamba_headdim=mamba_headdim,
             temporal_window=temporal_window,
             use_fifo_cache=use_fifo_cache,
+            dec_base=dec_base,
+            enc_base=enc_base,
         )
         self.use_gazer = use_gazer
         self.bottleneck_channels = base_channels * 8

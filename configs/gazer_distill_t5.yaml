@@ -1,0 +1,51 @@
+# Step 4 — Lightweighting + Annealing distillation (see tools/gazer_distill.py).
+# Objective: maximize lightweighting while the RL reward (per-pixel teacher
+# agreement) stays within -gate of the RL-tuned teacher (gazer_ep9).
+# The annealing targets are BOTH CNN sides of the bottleneck (step-2 stress
+# test: encoder CNN 95.3 GF + decoder 216.1 GF @448^2 = 95.5% of CNN FLOPs;
+# Mamba3 is 13% of wall time and nearly T-flat).
+#
+# Grid: (enc_base, dec_base) channel widths. enc_base == 32 means the full
+# encoder (inherited from gazer_ep9, frozen); a narrower enc_base narrows
+# enc1/2/3 (the bottleneck output stays base_channels*8 = the Mamba3 input,
+# so the temporal pathway weights are inherited). The bottleneck output
+# width is fixed; only the bottleneck INPUT changes with enc_base (fresh
+# weights, trained). A 1x1 skip adapter bridges any encoder/decoder width
+# gap.
+#   32 = full width   16 = half width   8 = quarter
+#
+# Warm-start chain = gradual capacity fade-out: each variant starts from
+# the previous variant's best checkpoint (shape-aware load); the first
+# variant starts from gazer_ep9. The GATE (--gate) then measures
+# val/agreement_teacher of every variant on the SAME val SAM3 landscape as
+# gazer_ep9; selection = the lightest (min params) variant with
+# delta >= -gate. Target selection is by the measured degradation
+# tolerance, not by static FLOPs ranking.
+grid:
+  - [32, 16]    # e32d16: decoder half width (rung 1 of the chain)
+  - [32, 8]     # e32d8:  decoder quarter width
+  - [16, 16]    # e16d16: encoder half width + decoder half width
+  - [16, 8]     # e16d8:  both sides quarter width (the full anneal)
+
+# Distillation loss weights (losses/distill_loss.py):
+#   alpha_ce * CE(p_s, SAM3 landscape)  — the RL reward, per-pixel (primary)
+#   alpha_kl * KL(p_s || p_t)           — exact per-pixel anchor to the RL policy
+#   alpha_tv(epoch) * TV(logits_s)      — annealing regularizer (ramps from->to)
+alpha_ce: 1.0
+alpha_kl: 1.0
+tv_anneal_from: 0.001
+tv_anneal_to: 0.05
+tau: 1.0               # teacher logit temperature for the KL term
+
+# Gate: student val/agreement_teacher must be >= teacher - gate.
+gate: 0.01
+
+# Training (per variant)
+epochs: 30
+lr: 0.0005
+weight_decay: 0.0001
+max_grad_norm: 1.0
+val_every: 3
+
+# The full-model and per-variant FLOPs / wall time are measured in the
+# static radar (tools/gazer_distill.py --static).
