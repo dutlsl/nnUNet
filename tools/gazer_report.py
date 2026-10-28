@@ -11,6 +11,7 @@ Data sources (all project files, regenerated on every run):
 Usage:  nnunet_env/bin/python tools/gazer_report.py
 Re-run after gazer_eval_compare.py finishes to fold in the comparison numbers.
 """
+import base64
 import json
 import os
 import re
@@ -33,7 +34,7 @@ PSEUDO_BENCH = f"""
 <ol>
 <li><span class="kw">공통 타이밍 규칙</span> — 각 계측 항목은 bf16으로,
 워밍업 10회 + 측정 30회 반복한 뒤 <b>CUDA 이벤트 타이밍의 중앙값(ms)</b>을 기록
-(최악/최상단이 아닌 대표값을 사용).</li>
+(극단값 대신 대표값을 사용).</li>
 <li><span class="kw">모듈 격리 타이밍 (B)</span> —
 <ol>
 <li>인코더(448→56)를 <b>한 번만</b> 돌려 중간 특징을 고정합니다.</li>
@@ -55,13 +56,13 @@ PSEUDO_BENCH = f"""
 PSEUDO_GRPO = """
 <span class="ph">수신된 신호를 "픽셀 단위"로 바꾸는 3단계 (rl/grpo.py · losses/grpo_loss.py)</span>
 <ol>
-<li><span class="kw">보상 → 장단(advantage) 변환</span>
+<li><span class="kw">보상 → 이득(advantage) 변환</span>
 <ul>
 <li>각 픽셀의 보상 r에서 <b>같은 픽셀의 G개 샘플 평균</b>을 뺀 뒤
-−5~+5로 잘라(A = clip(r − 평균, ±5)) 장단을 만듭니다.
+−5~+5로 잘라(A = clip(r − 평균, ±5)) 이득을 만듭니다.
 표준편차로 나누지 않는 것이 핵심 변화입니다.</li>
 <li>모든 G개 샘플이 같은 클래스를 내린 "확신 픽셀"은 평균과 정확히 같아
-장단 = 0이 <b>엄밀히</b> 되어 플러(노이즈)가 사라지고,
+이득 = 0이 <b>엄밀히</b> 되어 노이즈가 사라지고,
 샘플 간 견해가 갈린 "경계 픽셀"에만 ±O(1) 신호가 남습니다.</li>
 <li>결국 그라디언트가 <b>teacher와 견해가 갈린 위치에만</b> 작용합니다.</li>
 </ul></li>
@@ -71,7 +72,7 @@ PSEUDO_GRPO = """
 <li><span class="kw">GRPO 손실</span>
 <ul>
 <li>중요도 비율 = exp(현재 정책 로그가능성 − 참조 정책 로그가능성)
-(±20 클램프로 수치 안정). 이 비율 × 장단 의 평균이 policy gradient 항입니다
+(±20 클램프로 수치 안정). 이 비율 × 이득 의 평균이 policy gradient 항입니다
 — "참조 정책보다 이 픽셀에서 좋은 선택을 늘리고, 나쁜 선택을 줄여라"가
 <b>픽셀마다</b> 별개로 계산됩니다.</li>
 <li>거기에 참조 정책(EMA)과의 정확 KL 다이버전스 항을 더해
@@ -83,7 +84,7 @@ PSEUDO_GRPO = """
 """
 
 PSEUDO_EVAL = """
-<span class="ph">"같은 눈금자"로 3개 모델을 한 번에 재측정 (tools/gazer_eval_compare.py)</span>
+<span class="ph">"같은 기준"으로 3개 모델을 한 번에 재측정 (tools/gazer_eval_compare.py)</span>
 <ol>
 <li><span class="kw">기준을 미리 만들어 두기 (landscape)</span> —
 val 프레임 16,800개에 대해 SAM3 teacher의 연산(soft4 분할)을 <b>한 번만</b>
@@ -93,7 +94,7 @@ val 프레임 16,800개에 대해 SAM3 teacher의 연산(soft4 분할)을 <b>한
 <li>val만 쓰는 이유: Sequence 분할의 GT 프레임이 0개라 보상이 teacher
 landscape에서만 오므로, 전체(4.4배) 대신 val 분할만 측정해도 충분합니다.</li>
 </ul></li>
-<li><span class="kw">같은 눈금자로 3개 모델 비교</span>
+<li><span class="kw">같은 기준으로 3개 모델 비교</span>
 <ol>
 <li>gazer_ep9 — GRPO 8epoch 정책</li>
 <li>init_fold1 — semantic fold_1 초기값(= ep0, RL 전)</li>
@@ -104,7 +105,7 @@ landscape에서만 오므로, 전체(4.4배) 대신 val 분할만 측정해도 �
 </ol>
 <span class="cm">eval_val은 train_gazer.validate를 1:1 재현(bf16 forward +
 dice_agreement(softmax, SAM3 soft4)) — 학습 중 찍은 val/agreement_teacher 수치와
-완전히 같은 눈금이라 비교가 공정합니다.</span>
+완전히 같은 기준이라 비교가 공정합니다.</span>
 """
 
 PSEUDO_DISTILL = """
@@ -168,72 +169,72 @@ SVG_V3_FLOW = """
 <svg viewBox="0 0 900 310" class="chart">
 <defs><marker id="arrv" viewBox="0 0 10 10" refX="9" refY="5"
 markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-<path d="M0,0 L10,5 L0,10 z" fill="#7c5cff"/></marker></defs>
+<path d="M0,0 L10,5 L0,10 z" fill="#7a4dff"/></marker></defs>
 <text x="450" y="16" class="ct">VivimBackboneMultiFrame — forward shape 흐름 (T=5, 448×448)</text>
-<rect x="8" y="36" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="67" y="58" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">input</text>
-<text x="67" y="76" text-anchor="middle" fill="#8494ad" font-size="11">[B,T,1,448,448]</text>
-<rect x="144" y="36" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="203" y="58" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">enc1</text>
-<text x="203" y="76" text-anchor="middle" fill="#8494ad" font-size="11">32 · 448²</text>
-<rect x="280" y="36" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="339" y="58" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">enc2</text>
-<text x="339" y="76" text-anchor="middle" fill="#8494ad" font-size="11">64 · 224²</text>
-<rect x="416" y="36" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="475" y="58" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">enc3</text>
-<text x="475" y="76" text-anchor="middle" fill="#8494ad" font-size="11">128 · 112²</text>
-<rect x="552" y="36" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="611" y="58" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">bottleneck</text>
-<text x="611" y="76" text-anchor="middle" fill="#8494ad" font-size="11">256 · 56²</text>
-<rect x="552" y="140" width="118" height="54" rx="6" fill="#2a2140" stroke="#7c5cff" stroke-width="1.5"/>
-<text x="611" y="160" text-anchor="middle" fill="#b9a8ff" font-size="12" font-weight="700">Mamba3</text>
-<text x="611" y="174" text-anchor="middle" fill="#8494ad" font-size="10.5">TemporalMambaBlock</text>
-<text x="611" y="187" text-anchor="middle" fill="#8494ad" font-size="10.5">[B·56·56, T, 256] T축 시퀀스</text>
-<rect x="552" y="236" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="611" y="258" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">dec3</text>
-<text x="611" y="276" text-anchor="middle" fill="#8494ad" font-size="11">128 · 112²</text>
-<rect x="416" y="236" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="475" y="258" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">dec2</text>
-<text x="475" y="276" text-anchor="middle" fill="#8494ad" font-size="11">64 · 224²</text>
-<rect x="280" y="236" width="118" height="54" rx="6" fill="#1d2740" stroke="#2f4270"/>
-<text x="339" y="258" text-anchor="middle" fill="#b9c6e0" font-size="12.5" font-weight="600">dec1</text>
-<text x="339" y="276" text-anchor="middle" fill="#8494ad" font-size="11">32 · 448²</text>
-<rect x="144" y="236" width="118" height="54" rx="6" fill="#12271c" stroke="#2ecc71"/>
-<text x="203" y="258" text-anchor="middle" fill="#a8e6c3" font-size="12.5" font-weight="600">1×1 conv</text>
-<text x="203" y="276" text-anchor="middle" fill="#8494ad" font-size="11">[B,T,4,448,448]</text>
-<line x1="126" y1="63" x2="140" y2="63" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="262" y1="63" x2="276" y2="63" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="398" y1="63" x2="412" y2="63" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="534" y1="63" x2="548" y2="63" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="611" y1="90" x2="611" y2="136" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="611" y1="194" x2="611" y2="232" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="552" y1="263" x2="538" y2="263" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="416" y1="263" x2="402" y2="263" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<line x1="280" y1="263" x2="266" y2="263" stroke="#7c5cff" stroke-width="1.6" marker-end="url(#arrv)"/>
-<path d="M475,90 L475,263 L548,263" fill="none" stroke="#3f8cff" stroke-width="1.4"
+<rect x="8" y="36" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="67" y="58" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">input</text>
+<text x="67" y="76" text-anchor="middle" fill="#5c6a80" font-size="11">[B,T,1,448,448]</text>
+<rect x="144" y="36" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="203" y="58" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">enc1</text>
+<text x="203" y="76" text-anchor="middle" fill="#5c6a80" font-size="11">32 · 448²</text>
+<rect x="280" y="36" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="339" y="58" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">enc2</text>
+<text x="339" y="76" text-anchor="middle" fill="#5c6a80" font-size="11">64 · 224²</text>
+<rect x="416" y="36" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="475" y="58" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">enc3</text>
+<text x="475" y="76" text-anchor="middle" fill="#5c6a80" font-size="11">128 · 112²</text>
+<rect x="552" y="36" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="611" y="58" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">bottleneck</text>
+<text x="611" y="76" text-anchor="middle" fill="#5c6a80" font-size="11">256 · 56²</text>
+<rect x="552" y="140" width="118" height="54" rx="6" fill="#efe9ff" stroke="#7a4dff" stroke-width="1.5"/>
+<text x="611" y="160" text-anchor="middle" fill="#5b3df5" font-size="12" font-weight="700">Mamba3</text>
+<text x="611" y="174" text-anchor="middle" fill="#5c6a80" font-size="10.5">TemporalMambaBlock</text>
+<text x="611" y="187" text-anchor="middle" fill="#5c6a80" font-size="10.5">[B·56·56, T, 256] T축 시퀀스</text>
+<rect x="552" y="236" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="611" y="258" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">dec3</text>
+<text x="611" y="276" text-anchor="middle" fill="#5c6a80" font-size="11">128 · 112²</text>
+<rect x="416" y="236" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="475" y="258" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">dec2</text>
+<text x="475" y="276" text-anchor="middle" fill="#5c6a80" font-size="11">64 · 224²</text>
+<rect x="280" y="236" width="118" height="54" rx="6" fill="#e8ecf4" stroke="#a9b6cc"/>
+<text x="339" y="258" text-anchor="middle" fill="#1f2733" font-size="12.5" font-weight="600">dec1</text>
+<text x="339" y="276" text-anchor="middle" fill="#5c6a80" font-size="11">32 · 448²</text>
+<rect x="144" y="236" width="118" height="54" rx="6" fill="#e9f7ef" stroke="#148f4b"/>
+<text x="203" y="258" text-anchor="middle" fill="#148f4b" font-size="12.5" font-weight="600">1×1 conv</text>
+<text x="203" y="276" text-anchor="middle" fill="#5c6a80" font-size="11">[B,T,4,448,448]</text>
+<line x1="126" y1="63" x2="140" y2="63" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="262" y1="63" x2="276" y2="63" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="398" y1="63" x2="412" y2="63" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="534" y1="63" x2="548" y2="63" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="611" y1="90" x2="611" y2="136" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="611" y1="194" x2="611" y2="232" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="552" y1="263" x2="538" y2="263" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="416" y1="263" x2="402" y2="263" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<line x1="280" y1="263" x2="266" y2="263" stroke="#7a4dff" stroke-width="1.6" marker-end="url(#arrv)"/>
+<path d="M475,90 L475,263 L548,263" fill="none" stroke="#1673b8" stroke-width="1.4"
 stroke-dasharray="5,4" marker-end="url(#arrv)"/>
-<text x="468" y="132" fill="#3f8cff" font-size="10.5" text-anchor="end">skip e3</text>
-<line x1="339" y1="90" x2="471" y2="232" stroke="#3f8cff" stroke-width="1.4"
+<text x="468" y="132" fill="#1673b8" font-size="10.5" text-anchor="end">skip e3</text>
+<line x1="339" y1="90" x2="471" y2="232" stroke="#1673b8" stroke-width="1.4"
 stroke-dasharray="5,4" marker-end="url(#arrv)"/>
-<text x="386" y="152" fill="#3f8cff" font-size="10.5">skip e2</text>
-<line x1="203" y1="90" x2="335" y2="232" stroke="#3f8cff" stroke-width="1.4"
+<text x="386" y="152" fill="#1673b8" font-size="10.5">skip e2</text>
+<line x1="203" y1="90" x2="335" y2="232" stroke="#1673b8" stroke-width="1.4"
 stroke-dasharray="5,4" marker-end="url(#arrv)"/>
-<text x="250" y="152" fill="#3f8cff" font-size="10.5">skip e1</text>
-<text x="8" y="304" fill="#8494ad" font-size="11">학습: T 프레임 전부 디코딩 (output_all_frames=True) · 스트리밍 인퍼런스: 1프레임씩, FIFO가 이전 T−1 bottleneck 특징을 보관 → 마지막 프레임만 디코딩 (120Hz path)</text>
+<text x="250" y="152" fill="#1673b8" font-size="10.5">skip e1</text>
+<text x="8" y="304" fill="#5c6a80" font-size="11">학습: T 프레임 전부 디코딩 (output_all_frames=True) · 스트리밍 인퍼런스: 1프레임씩, FIFO가 이전 T−1 bottleneck 특징을 보관 → 마지막 프레임만 디코딩 (120Hz path)</text>
 </svg>
 """
 
 HTML_DS_DIAGRAM = """
 <div style="display:flex;flex-direction:column;gap:8px;margin:10px 0">
 <div style="display:flex;align-items:center;gap:10px">
-<div style="width:88px;color:#8494ad;font-size:13px;flex-shrink:0">1세션 (1참가자)</div>
-<div style="display:flex;width:100%;height:44px;border-radius:8px;overflow:hidden;border:1px solid #2a3550">
-<div style="flex:2041;background:#1d2740;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#8494ad">Generative · ~2,041 (무라벨)</div>
-<div style="flex:600;background:#2a2410;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#f39c12">Sequence · 600 (무라벨)</div>
-<div style="flex:1;background:#12271c;min-width:150px;display:flex;align-items:center;justify-content:center;font-size:11.5px;color:#2ecc71">Semantic · 1~222 (4클래스 GT)</div>
+<div style="width:88px;color:#5c6a80;font-size:13px;flex-shrink:0">1세션 (1참가자)</div>
+<div style="display:flex;width:100%;height:44px;border-radius:8px;overflow:hidden;border:1px solid #c6d0e0">
+<div style="flex:2041;background:#e8ecf4;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#5c6a80">Generative · ~2,041 (무라벨)</div>
+<div style="flex:600;background:#fdf3e2;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#b26a00">Sequence · 600 (무라벨)</div>
+<div style="flex:1;background:#e9f7ef;min-width:150px;display:flex;align-items:center;justify-content:center;font-size:11.5px;color:#148f4b">Semantic · 1~222 (4클래스 GT)</div>
 </div>
 </div>
-<div style="color:#8494ad;font-size:12.5px;padding-left:98px">시간 순 → (세션당 블록 길이는 평균값, Semantic만 가변) · train/val/test = 참가자 95/28/29 단위</div>
+<div style="color:#5c6a80;font-size:12.5px;padding-left:98px">시간 순 → (세션당 블록 길이는 평균값, Semantic만 가변) · train/val/test = 참가자 95/28/29 단위</div>
 </div>
 """
 
@@ -404,6 +405,16 @@ def git_info():
     return tags, commits
 
 
+def img_src(dirpath, name):
+    """base64 data URI for the report (renders in any viewer); falls back
+    to a relative path if the file is missing."""
+    p = os.path.join(dirpath, name)
+    if os.path.exists(p):
+        with open(p, "rb") as f:
+            return "data:image/png;base64," + base64.b64encode(f.read()).decode()
+    return os.path.relpath(p, os.path.join(ROOT, "docs"))
+
+
 # ---------------------------------------------------------------------------
 def svg_line_chart(series, width=560, height=220, yfmt="{:.4f}",
                    title=""):
@@ -505,7 +516,7 @@ def main():
         fl = bench["flops_T5_B1"]
         fl_items = sorted(
             [(k.replace("temporal_mamba", "mamba3"), fl[k],
-              "#7c5cff" if "mamba" in k else "#3f8cff")
+              "#7a4dff" if "mamba" in k else "#1673b8")
              for k in fl if not k.startswith("_")
              and k != "temporal_mamba_bound"],
             key=lambda t: -t[1])
@@ -603,10 +614,10 @@ teacher−0.01 이상 유지되는 가장 가벼운 변종.</p>
 병렬 시 {_bud:.2f} ms/사이클). 풀 모델({_ms1:.2f} ms/프레임)은
 스트림당으로도 {_rat:.1f}배 초과 — 1스트림만으로도 3090 기준 이미
 초과, 여유 0에 가까움. <b>경량화는 시연 목표 달성을 위한 필수
-경로</b>. 4090의 실제 가속 계수는 미측정이므로 4090 풀 모델이
-예산을 통과할 여지도 있으나, 이는 <b>시연 환경 실측으로만
-판정</b>. 실험 서버 수치는 모듈별 상대 비율(인코더:mamba:디코더,
-변종 간 개선 폭)만 유효하게 사용.</p>
+경로</b>. 4090이 3090보다 얼마나 빠른지는 아직 못 재봐서, 풀 모델이
+4090에서 예산을 넘을지 <b>시연 환경에서 실측해서만
+판정</b>합니다. 실험 서버 수치는 모듈별 상대 비율(인코더:mamba:디코더,
+변종 간 개선 폭)로만 사용합니다.</p>
 </div>
 <h3>2-6. 측정 알고리즘 (tools/gazer_bench.py, 자연어 절차)</h3>
 <div class="pseudo">{PSEUDO_BENCH}</div>"""
@@ -617,7 +628,7 @@ teacher−0.01 이상 유지되는 가장 가벼운 변종.</p>
     if vals:
         val_pts = [(e, v) for e, v in sorted(vals.items())]
         val_svg = svg_line_chart(
-            [("val/agreement_teacher", "#2ecc71", val_pts)],
+            [("val/agreement_teacher", "#148f4b", val_pts)],
             yfmt="{:.4f}", title="VAL agreement (SAM3 teacher 기준)")
     else:
         val_svg = '<div class="chart-empty">VAL 데이터 없음</div>'
@@ -627,12 +638,12 @@ teacher−0.01 이상 유지되는 가장 가벼운 변종.</p>
             return (name, color,
                     [(e, v[key]) for e, _, v in stats if key in v])
         stat_svg = svg_line_chart(
-            [ser("grad/norm", "#e74c3c", "grad/norm"),
-             ser("grpo/kl", "#f39c12", "grpo/kl")],
+            [ser("grad/norm", "#c0392b", "grad/norm"),
+             ser("grpo/kl", "#d98c00", "grpo/kl")],
             yfmt="{:.4f}", title="grad/norm · grpo/kl (ep 진행)")
         adv_svg = svg_line_chart(
-            [ser("grpo/adv_std", "#9b59b6", "grpo/adv_std"),
-             ser("grpo/reward", "#3498db", "grpo/reward (pixel-mean)")],
+            [ser("grpo/adv_std", "#8e44ad", "grpo/adv_std"),
+             ser("grpo/reward", "#1673b8", "grpo/reward (pixel-mean)")],
             yfmt="{:.4f}", title="adv_std · reward")
     else:
         stat_svg = adv_svg = '<div class="chart-empty">stats 없음</div>'
@@ -664,13 +675,13 @@ teacher−0.01 이상 유지되는 가장 가벼운 변종.</p>
 baseline_400(수도라벨 400개 시퀀스 학습).
 <b>agreement</b>: 각 모델을 val 프레임에 통과시켜 <b>동일한 SAM3
 landscape(같은 기준 답안집)와 동일한 dice_agreement</b>로 잰 값 —
-같은 눈금이라 값만 보면 우열이 바로 판정됩니다.
+같은 기준이라 값만 보면 우열이 바로 판정됩니다.
 <b>소요</b>: 모델 1개 VAL 패스 걸린 시간(참고).
 <code>delta</code> = 모델 − baseline_400: 양수면 baseline_400보다
 동일 지표에서 우위.
 참고: baseline의 공식 수치 val_dice <b>0.8962</b>는 <i>수도라벨
 대비</i> Dice, GAZER의 0.7778은 <i>SAM3 landscape 대비</i>
-agreement — 다른 눈금이라 그대로 비교할 수 없고, 이 표가
+agreement — 다른 기준이라 그대로 비교할 수 없고, 이 표가
 그를 해결합니다. (per-class: BG 0.9829 / Sclera 0.8947 /
 Iris 0.8654 / Pupil 0.8417)</p>"""
 
@@ -735,20 +746,23 @@ decoder만 돌린 실측). <b>streaming(ms/프레임)</b>: 시연과 같은 "1�
 ({_bud:.2f} ms)과 직접 비교</b>됩니다. 숫자가 작을수록 실시간에 가까움.
 e32d32가 teacher 기준(가장 무거움)이고, e16d8이 annealing 완주(가장
 가벼움) 변종입니다.</p>
-<p class="note">정적 레이더 실측치 (tools/gazer_distill.py --static, 3090,
-T=5, 448², 5변종). params/FLOPs는 contention 무관(정적 계산).
-wall/streaming ms는 측정 당시 GPU 점유(100%) 환경이라 4090 대비 <b>상한</b> —
+<p class="note">정적 레이더(학습을 돌리지 않고 크기·연산량·속도를 미리 재본
+값) 실측치 (tools/gazer_distill.py --static, 3090,
+T=5, 448², 5변종). params/FLOPs는 다른 프로세스와 무관한 값(정적
+계산). wall/streaming ms는 측정 당시 GPU가 100% 점유된 환경이라
+4090 대비 <b>상한</b> —
 변종 간 상대 개선만 인용. spatial 해상도는 변종 불변(bottleneck 출력
 H/8=56², pool 3단계 고정; 폭 축소 시 채널 폭만 변함).
 encoder 축소: 74.57→18.79 GF(75% 감소), 풀 CNN 318.42→58.56 GF(5.4×).
-decoder FLOPs 13× 감소가 wall ~3.2× 감소로 압축되는 점: db≤8 폭에서
-conv가 memory/latency-bound(커널당 연산량이 GPU를 채우지 못해
-kernel launch + memory traffic이 지배) → FLOPs-비선형.
+decoder FLOPs 13× 감소가 실측 시간에서는 ~3.2× 감소로 나타나는 점:
+채널 폭이 좁아지면(db≤8) 병목이 연산이 아니라 GPU 안의 데이터
+이동(memory/latency-bound)이 되어, FLOPs 감소 효과가 비례대로
+나오지 않습니다.
 e16d8의 streaming(9.40 ms)이 e32d8(7.31 ms)보다 큰 점도 같은
 narrow-width 효과가 encoder(16-base)까지 확장된 것이며,
 동일 decoder 폭(db=8)의 wall 차이(e16d8 12.06 vs e32d8 10.82 ms)는
-100% 점유 contention 노이즈 범위 — 4090 clean 실측으로 재확인.
-최종 판단은 시연 4090 실측.</p>
+GPU 점유 환경의 측정 오차 범위 — 4090에서 조용한 상태로 실측해
+재확인. 최종 판단은 시연 4090 실측.</p>
 <h3>4-2. 실행 방법: Stage A warm-start 체인 → Stage B RL 보상 게이트</h3>
 <p><b>Stage A (SAM3-free annealed distillation — warm-start 체인으로
 단계적 capacity fade-out)</b></p>
@@ -772,7 +786,7 @@ landscape를 RAM에 두고 있고, 251GB RAM에 두 개의 landscape를
 합니다.</li>
 <li><b>진행 지표</b>: val에서 <code>dice(student softmax, policy
 softmax)</code> (dice_proxy) — Stage A는 teacher 품질이
-아니라 "policy 흉내"의 진행을 보기 위한 것(§4-3 주석 참고).
+아니라 "policy 재현"의 진행을 보기 위한 것(§4-3 주석 참고).
 결정적 검증은 Stage B.</li>
 </ul>
 <p><b>Stage B (--gate, RL 보상 게이트 — 최종 판정)</b></p>
@@ -789,7 +803,7 @@ teacher(전체 크기 모델)보다 0.01 이내로만 허용하는 하락.
 가벼운 변종"으로 선정.</li>
 <li><b>의미</b>: 2단계·3단계에서 정한 보상 정의(teacher-
 likelihood)를 4단계의 검증으로 직접 연결하는 인과 고리 —
-"경량화해도 보상을 지켰는가"를 보상 그 자체의 눈금으로 확인.</li>
+"경량화해도 보상을 지켰는가"를 보상 그 자체의 기준으로 확인.</li>
 </ul>
 <h3>4-3. 실행 상태 (10-27 17:10 KST)</h3>
 <div class="pending">Stage A 체인 1단계 <b>e32d16</b> 학습 중 (15:55 KST
@@ -864,84 +878,84 @@ per-pixel dense GRPO + τ 1.5/G 16.
 <h3>3-1. 진단: 신호 소실 (10-26 런, ep1–9 로그 수치)</h3>
 <div class="diaggrid">
 <div class="kpi"><span class="kv">0.016</span><span class="kl">adv_std (ep2+)
-— 설계 플러 <code>adv_eps=0.01</code>에 근접</span></div>
+— 설계 노이즈 바닥 <code>adv_eps=0.01</code>에 근접</span></div>
 <div class="kpi"><span class="kv">≈1.6e-4</span><span class="kl">그룹 reward
-표준편차 (adv_std 역산) — 플러의 1/60</span></div>
+표준편차 (adv_std 역산) — 노이즈 바닥의 1/60</span></div>
 <div class="kpi"><span class="kv">~5e-4</span><span class="kl">grad/norm
 (ep2+) — ep1 초기 0.17의 1/300</span></div>
 <div class="kpi"><span class="kv">0.0014–0.0021</span><span class="kl">
 grpo/kl (ep2+) — KL 앵커만 동작, PG≈0</span></div>
 </div>
-<p class="note"><b>이 네 수치가 무엇을 말하는가</b> ·
-<b>adv_std</b>: 같은 프레임에서 뽑은 G개 샘플(롤아웃)끼리
-"이 분할이 좋은 선택이냐 나쁜 선택이냐"를 가르는 장단(advantage)의
-산포. 0.016이면 설계 안전지대(플러 0.01)에 붙은 <b>노이즈 수준</b>.
-<b>그룹 reward 표준편차 ≈1.6e-4</b>: 16개 롤아웃의 보상이 거의 같다는
-뜻 — "어떤 선택이 좋은가"를 배울 차이가 1/60,000.
-<b>grad/norm ~5e-4</b>: 학습이 실제로 가중치를 움직이는 크기.
-정상값(ep1의 0.17)의 1/300 → <b>바닥(학습이 멈춘)에 붙어 있는 것</b>.
-<b>grpo/kl 0.0014–0.0021</b>: 정책이 참조(teacher)에서 살짝만 벗어나고
-그저 KL 앵커가 "그 자리에 붙어 있으라"만 작용.
-→ 네 개가 동시에 "학습 신호가 사라진 상태"를 가리킵니다.</p>
-<p><b>원인 — 신호가 왜 사라졌나 (인과 순서)</b></p>
+<p class="note"><b>네 수치를 읽는 법</b> ·
+<b>adv_std</b>: 같은 프레임에서 뽑은 G개 샘플(롤아웃)의 보상이
+"좋냐 나쁘냐"로 갈리는 정도. 0.016은 안전장치 값(0.01) 바로 옆,
+<b>노이즈 수준</b>입니다.
+<b>그룹 reward 표준편차 ≈1.6e-4</b>: 16개 롤아웃의 보상이 거의
+같다는 뜻. 배울 차이가 1/60,000입니다.
+<b>grad/norm ~5e-4</b>: 학습이 가중치를 실제로 움직이는 크기.
+정상(ep1의 0.17)의 1/300 — <b>학습이 멈춘 상태</b>입니다.
+<b>grpo/kl 0.0014–0.0021</b>: 정책이 teacher에서 거의 벗어나지
+못하고, KL 앵커가 "그 자리에 있으라"만 막고 있는 상태.
+→ 네 수가 한 방향으로: 학습 신호가 사라졌습니다.</p>
+<p><b>원인 — 신호가 사라진 순서</b></p>
 <ol>
-<li>semantic fold_1 초기값이 near-deterministic(픽셀 엔트로피
-0.014 nats) — 프레임 한 장에 대한 분할이 거의 한 개뿐이라,
-같은 프레임의 G개 롤아웃(샘플)이 대부분 같은 답을 냅니다.</li>
-<li>그 결과 G개 롤아웃의 <i>프레임 스칼라</i> reward 차이는
-1.6e-4에 불과합니다.</li>
-<li>그런데 z-score advantage의 std floor(1e-2)가 이 실제 변동의
-60배 → 정규화 후 신호는 사라지고 플러만 남습니다.</li>
+<li>semantic fold_1 초기값이 거의 결정적(near-deterministic,
+픽셀 엔트로피 0.014 nats)입니다. 한 프레임의 분할이 사실상
+한 개뿐이라, 같은 프레임의 G개 롤아웃이 대부분 같은 답을 냅니다.</li>
+<li>그래서 G개 롤아웃의 <i>프레임 1개 값</i> reward 차이는
+1.6e-4 수준으로 작습니다.</li>
+<li>그런데 정규화에 쓰는 하한 값(0.01)이 실제 변동(1.6e-4)의
+60배였습니다. 이렇게 맞추면 진짜 차이는 묻히고 노이즈만 남습니다.</li>
 </ol>
-<p class="note"><b>구조적 원인</b>: §7.2의 per-pixel dense reward는 원래
-"어디 픽셀이 좋은 선택이었는지"를 픽셀 단위로 알려줄 수 있는
-credit assignment를 갖고 있습니다. 그런데 ~2×10⁵ 픽셀을
-<i>pixel-mean으로 프레임 1개 값으로 평균</i>하면서 그 정보가
-소실되고, 위에서 본 "샘플 간 차이 자체가 없는 프레임 스칼라"
-경로로 돌아간 것입니다.</p>
+<p class="note"><b>구조적 원인</b>: §7.2의 per-pixel dense reward는
+원래 "어디 픽셀이 좋은 선택이었는지"를 픽셀 단위로 알려주는
+장치를 내장하고 있습니다(credit assignment). 그런데 ~2×10⁵ 픽셀을
+<i>pixel-mean으로 프레임 1개 값으로 평균</i>하면서 이 정보가
+사라지고, "샘플 간 차이가 없는 프레임 스칼라" 경로로
+돌아갔습니다.</p>
 <h3>3-2. 수정 (v4.0.1-gazer-dense, 아키텍처 불변)</h3>
 <table>
 <tr><th>항목</th><th>Before</th><th>After</th></tr>
 <tr><td>reward</td><td>프레임 스칼라 (pixel-mean)</td>
     <td><b>per-pixel dense</b> [G,N,H,W]</td></tr>
-<tr><td>advantage</td><td>z-score (std floor 1e-2)</td>
-    <td><b>raw group-centering</b> clip(r−mean_g r, ±5) — 확신 픽셀 A=0
-    정확, 경계 픽셀만 O(1)</td></tr>
+<tr><td>advantage</td><td>z-score (전체 std로 정규화, 하한 0.01)</td>
+    <td><b>raw group-centering</b> clip(r − 그룹평균, ±5) — 확신
+    픽셀 A=0 정확, 경계 픽셀만 O(1)</td></tr>
 <tr><td>importance ratio</td><td>pixel-mean logp</td>
     <td><b>per-pixel</b> logp (categorical_logp_dense)</td></tr>
 <tr><td>τ</td><td>1.0</td><td><b>1.5</b></td></tr>
 <tr><td>G</td><td>8</td><td><b>16</b> (forward 공유 → 비용 +0)</td></tr>
 <tr><td>KL</td><td colspan="2">per-pixel exact (불변, GRPOLoss.dense에 합침)</td></tr>
 </table>
-<p class="note"><b>지표 설명 (Before → After가 뭘 바꾸는지)</b> ·
-<b>reward</b>: 보상의 "해상도". pixel-mean = 한 프레임의 20만 픽셀을
-1개의 숫자로 압축(어디가 잘잘못인지 정보 소실) → per-pixel dense =
-<b>픽셀마다</b> 보상을 남겨 "이 픽셀만 teacher와 달랐다"는 신호를
-지킴.
-<b>advantage</b>: z-score(전체 std로 정규화)는 신호가 플러보다 작으면
-정규화가 노이즈를 증폭 → <b>raw group-centering</b>(그룹 평균만 빼고
-±5로 자름)은 확신 픽셀(16개 롤아웃이 같은 클래스)에서 장단이
-엄밀히 0이 되어 플러가 사라짐.
-<b>importance ratio</b>: "지금 정책이 참조 대비 이 픽셀의 선택 확률을
-얼마나 바꿨나" — 픽셀 단위로 정확히 측정.
-<b>τ 1.0→1.5</b>: 온도(temperature) — 샘플링 분포를 부드럽게
-만들어 롤아웃의 다양성↑, 견해가 갈린(=배울 것이 있는) 픽셀이 더
-많이 나옴. <b>G 8→16</b>: 프레임당 롤아웃 수. forward가 이미 공유되므로
-추가 비용 없이 그룹 평균이 더 안정.
+<p class="note"><b>Before → After가 뭘 바꾸는지</b> ·
+<b>reward</b>: 보상의 해상도입니다. pixel-mean은 한 프레임의
+20만 픽셀을 숫자 1개로 압축해 "어디가 잘잘못인지"를 잃습니다.
+per-pixel dense는 <b>픽셀마다</b> 보상을 남겨
+"이 픽셀만 teacher와 달랐다"는 신호를 유지합니다.
+<b>advantage</b>: z-score(전체 std로 정규화)는 신호가 작으면
+정규화 자체가 노이즈를 증폭합니다. <b>raw group-centering</b>(그룹
+평균만 빼고 ±5로 자름)은 확신 픽셀(16개 롤아웃이 같은 클래스)에서
+이득이 엄밀히 0이 되어 노이즈가 사라집니다.
+<b>importance ratio</b>: "지금 정책이 참조 대비 이 픽셀의 선택
+확률을 얼마나 바꿨나"를 픽셀 단위로 정확히 측정합니다.
+<b>τ 1.0→1.5</b>: 온도(temperature)를 올려 샘플링 분포를 부드럽게
+하면 롤아웃 다양성이 늘어, 견해가 갈린(배울 것이 있는) 픽셀이
+더 많이 나옵니다. <b>G 8→16</b>: 프레임당 롤아웃 수. forward가
+이미 공유되므로 추가 비용 없이 그룹 평균이 더 안정해집니다.
 <b>KL</b>: teacher에서 크게 벗어나지 않게 하는 제동 — per-pixel
-정확 KL을 유지.</p>
+정확 KL을 유지합니다.</p>
 <p class="note">Phase 1 smoke: ALL 6 CHECKS PASS (dense grpo_step×2+옵티마이저,
 EMA, split 전환, validate, SAM3 miss 폴백, ckpt 저장/로드).</p>
-<p><b>인과관계(수치) — 문제에서 해결까지의 연결</b></p>
+<p><b>수치로 본 문제 → 해결 연결</b></p>
 <ol>
 <li>ep2+의 adv_std 0.016은 std floor(1e-2)가 실제 변동(1.6e-4)의
-60배임을 보여 줍니다 — 신호가 플러보다 작으면 정규화 후
-advantage에 남는 것은 플러뿐.</li>
-<li>advantage가 플러 → grad/norm ~5e-4 (ep1 0.17의 1/300) →
+60배라는 증거입니다. 신호가 작으면 정규화 후 advantage에 남는
+것은 노이즈뿐입니다.</li>
+<li>이득이 노이즈 → grad/norm ~5e-4 (ep1 0.17의 1/300) →
 policy gradient ≈ 0. 학습이 사실상 멈춘 상태입니다.</li>
-<li>dense 전환은 이 구조를 풀 것: 확신 픽셀에서 장단 A=0(플러
-소멸)이고, teacher와 견해가 갈린 경계 픽셀에서만 O(1) 신호가
-남습니다.</li>
+<li>dense 전환은 이 구조를 풉니다. 확신 픽셀에서는 이득 A=0
+(노이즈 소멸)이고, teacher와 견해가 갈린 경계 픽셀에서만 O(1)
+신호가 남습니다.</li>
 </ol>
 <p>즉, 재기동 후 ep1에서 <b>adv_std ≫ 0.016, neg_pg ≠ 0,
 grad/norm ~0.17</b>가 찍히면 "실 신호가 들어오고 학습이 다시
@@ -952,7 +966,7 @@ grad/norm ~0.17</b>가 찍히면 "실 신호가 들어오고 학습이 다시
 {val_svg}
 {stat_svg}
 {adv_svg}
-<p class="note">grad/norm·KL이 ep2부터 바닥(플러 노이즈) — 위 진단의 시각화.
+<p class="note">grad/norm·KL이 ep2부터 바닥(노이즈) — 위 진단의 시각화입니다.
 VAL은 KL 앵커+미세 신호로 0.7764→0.7778 완만 상승.</p>
 <h3>3-4. 동일 지표 베이스라인 비교 (3a)</h3>
 {eval_html}
@@ -971,15 +985,15 @@ GT 프레임이 0개라 reward가 SAM3 landscape에서만 오기 때문(전체 l
 eval-compare(~2h) 종료 → watchdog 재기동(phase0 ~8.7h) → 150 ep.
 성공 확인 기준: ep1 <code>adv_std ≫ 0.016</code>, <code>neg_pg ≠ 0</code>,
 grad/norm ~0.17 복귀.</p>
-<p class="note"><b>확인 기준 수치 각각의 의미</b> ·
-<b>adv_std ≫ 0.016</b>: 장단(advantage)의 산포가 설계 안전지대
-(플러 0.01)를 크게 벗어났다는 것 = "좋은 선택 vs 나쁜 선택"을
-가르는 실 신호가 들어오기 시작.
+<p class="note"><b>확인 기준 수치의 의미</b> ·
+<b>adv_std ≫ 0.016</b>: 이득(advantage)의 산포가 안전장치 값
+(0.01)을 크게 벗어남 = "좋은 선택 vs 나쁜 선택"을 가르는
+실 신호가 들어온다는 뜻입니다.
 <b>neg_pg ≠ 0</b>: policy gradient 손실의 음수(강화) 성분이
-0이 아님 — 실제로 좋은 선택의 확률을 올리는 방향의 업데이트가
-발생.
+0이 아님 — 좋은 선택의 확률을 올리는 업데이트가 실제로
+일어납니다.
 <b>grad/norm ~0.17</b>: ep1 초기 수준(0.17)으로 복귀 —
-§3-1의 ~5e-4(바닥)에서 정상 학습으로 돌아온 증거.</p>"""
+§3-1의 ~5e-4(바닥)에서 정상 학습으로 돌아온 증거입니다.</p>"""
 
     # ---- step: v4 progress snapshot (dynamic, regenerated each run) -----
     ov_dir = os.path.join(ROOT, "logs", "diagnostics", "overlay")
@@ -1009,22 +1023,22 @@ grad/norm ~0.17 복귀.</p>
     _d16_ep = _d16_val[0] or "—"
     _d16_last = _d16.get("last_ep", "—")
 
-    _img = "../logs/diagnostics/overlay/"
+    _img = os.path.join(ROOT, "logs", "diagnostics", "overlay")
     _figs = f"""
 <div class="figgrid">
-<div><img src="{_img}gazer_ep9_frame_000000336400.png"/>
+<div><img src="{img_src(_img, 'gazer_ep9_frame_000000336400.png')}"/>
 <div class="figcap"><b>gazer_ep9 (풀 정책) · 프레임 336400 (짝수)</b> —
 3패널: 원본(흰색 사각형=400² 크롭) | 크롭 | 모델 분할 오버레이
 (초록=결막, 빨강=홍채, 파랑=동공). test Sequence (참가자 무라벨 스트림).</div></div>
-<div><img src="{_img}gazer_ep9_frame_000000336401.png"/>
+<div><img src="{img_src(_img, 'gazer_ep9_frame_000000336401.png')}"/>
 <div class="figcap"><b>gazer_ep9 · 프레임 336401 (홀수)</b> —
 위 그림의 인접 프레임. 0-B에서 확인한 <b>좌우 카메라 교차</b>로
 "같은 시점의 다른 눈"이라 동공 위치가 대칭으로 보임.</div></div>
-<div><img src="{_img}d16_frame_000000336400.png"/>
+<div><img src="{img_src(_img, 'd16_frame_000000336400.png')}"/>
 <div class="figcap"><b>e32d16 경량 student (dec 1/2 폭) · 336400</b> —
 같은 프레임에서 distill된 경량 모델의 분할. gazer_ep9 오버레이와
 비교하면 동공·홍채 경계가 시각적으로 일치 (pixel_exact {_fmt(ov_x, 'pixel_exact_mean')}).</div></div>
-<div><img src="{_img}d16_frame_000000336401.png"/>
+<div><img src="{img_src(_img, 'd16_frame_000000336401.png')}"/>
 <div class="figcap"><b>e32d16 · 336401</b> — 짝/홀 프레임 모두
 동공⊆홍채 포개짐 1.0 (nesting), step-2 동일 뷰 IoU {_fmt(ov_d, 'iris_iou_step2_sameview', 2)}.</div></div>
 </div>
@@ -1043,7 +1057,7 @@ d16 {_fmt(ov_d, 'iris_iou_step2_sameview')} · 클래스 분율(결막~17%,
 <b>ep1 신호 확인 (dense GRPO 재학습, live)</b> — phase0
 reward-landscape 캐시(73,800프레임, ~118GB RAM) 완주 후 ep1
 it{_sig['it']}/{_sig['total']} ({_sig['it'] / _sig['total'] * 100:.0f}%) 진행 중:
-grpo/adv_std <b>{_sig['adv_std']:.3f}</b> (플러 수준 0.016의
+grpo/adv_std <b>{_sig['adv_std']:.3f}</b> (노이즈 바닥 0.016의
 {_sig['adv_std'] / 0.016:.0f}배 — §3-1의 신호 소실 복구),
 grpo/neg_pg <b>{_sig['neg_pg']:.4f}</b> (≠0 — 강화 방향 업데이트
 발생), grpo/reward {_sig['reward']:.3f}, grad/norm {_sig['grad_norm']:.3f} (안정).
@@ -1081,7 +1095,7 @@ grpo/neg_pg <b>{_sig['neg_pg']:.4f}</b> (≠0 — 강화 방향 업데이트
 </div>
 <p class="note"><b>지표 설명 (KPI)</b> · <b>agreement_teacher</b>:
 teacher(SAM3)와의 일치도 = 실질 품질(§3). <b>dice_proxy</b>:
-동결 정책(gazer_ep9)과의 일관성 = "정책을 얼마나 흉내 내나"
+동결 정책(gazer_ep9)과의 일관성 = "정책을 얼마나 재현하는가"
 (0.99 구조적 기대, §4-3). <b>step-2 동일뷰 IoU</b>: 좌우 카메라
 교차(0-B)를 감안해 2프레임 간격 같은 눈끼리의 홍채 영역 겹침 —
 1.0에 가까울수록 시퀀스 안정. <b>pixel exact</b>: 풀 정책과
@@ -1140,67 +1154,69 @@ SAM3 soft4가 fold_1 분할과 높은 baseline 정합을 가지므로 GRPO
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GAZER 진행 리포트 — {now}</title>
 <style>
-:root {{ --bg:#0f1420; --card:#171e2e; --tx:#dce3f0; --mut:#8494ad;
-  --ac:#7c5cff; --ok:#2ecc71; --warn:#f39c12; --bad:#e74c3c; }}
+:root {{ --bg:#f5f7fb; --card:#ffffff; --tx:#1f2733; --mut:#5c6a80;
+  --ac:#5b3df5; --ok:#148f4b; --warn:#b26a00; --bad:#c0392b;
+  --line:#d7deea; --box:#e8ecf4; }}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; background:var(--bg); color:var(--tx);
-  font:15px/1.55 'Segoe UI',system-ui,sans-serif; }}
+  font:15px/1.6 'Segoe UI',system-ui,sans-serif; }}
 .wrap {{ max-width:920px; margin:0 auto; padding:28px 18px 60px; }}
-h1 {{ font-size:26px; margin:0 0 4px; }}
+h1 {{ font-size:26px; margin:0 0 4px; color:#141c28; }}
 h2 {{ font-size:20px; margin:34px 0 10px; border-bottom:2px solid var(--ac);
-  padding-bottom:6px; }}
-h3 {{ font-size:16px; margin:22px 0 8px; color:#b9c6e0; }}
+  padding-bottom:6px; color:#141c28; }}
+h3 {{ font-size:16px; margin:22px 0 8px; color:#2c3a52; }}
+h4 {{ font-size:15px; margin:18px 0 6px; color:#2c3a52; }}
 p {{ margin:8px 0; }}
 table {{ border-collapse:collapse; margin:10px 0; width:100%; }}
-th,td {{ border:1px solid #2a3550; padding:6px 10px; text-align:left;
+th,td {{ border:1px solid var(--line); padding:6px 10px; text-align:left;
   font-size:14px; }}
-th {{ background:#1d2740; }}
-code {{ background:#1d2740; padding:1px 5px; border-radius:4px;
+th {{ background:var(--box); }}
+code {{ background:var(--box); color:#3d2f8a; padding:1px 5px; border-radius:4px;
   font-size:13px; }}
-.card {{ background:var(--card); border:1px solid #243050; border-radius:10px;
-  padding:16px 18px; margin:12px 0; }}
+.card {{ background:var(--card); border:1px solid var(--line); border-radius:10px;
+  padding:16px 18px; margin:12px 0; box-shadow:0 1px 3px rgba(20,28,40,0.06); }}
 .note {{ color:var(--mut); font-size:13.5px; }}
 .chart {{ width:100%; height:auto; }}
-.chart .grid {{ stroke:#243050; stroke-width:1; }}
+.chart .grid {{ stroke:#e2e7f0; stroke-width:1; }}
 .chart .ax {{ fill:var(--mut); font-size:11px; }}
 .chart .ln {{ fill:none; stroke-width:2; }}
-.chart .ct {{ fill:#b9c6e0; font-size:12px; font-weight:600;
+.chart .ct {{ fill:#2c3a52; font-size:12px; font-weight:600;
   text-anchor:middle; }}
 .chart-empty {{ color:var(--mut); padding:14px; background:var(--card);
   border-radius:8px; }}
-.verdict {{ background:#12271c; border:1px solid var(--ok); border-radius:8px;
+.verdict {{ background:#e9f7ef; border:1px solid #7fc99a; border-radius:8px;
   padding:12px 14px; }}
-.pending {{ background:#2a2410; border:1px solid var(--warn); border-radius:8px;
+.pending {{ background:#fdf3e2; border:1px solid #e3b45f; border-radius:8px;
   padding:10px 14px; }}
-.kpi {{ background:var(--card); border:1px solid #243050; border-radius:8px;
+.kpi {{ background:var(--card); border:1px solid var(--line); border-radius:8px;
   padding:10px 12px; }}
 .kv {{ display:block; font-size:22px; font-weight:700; color:var(--ac); }}
 .kl {{ color:var(--mut); font-size:13px; }}
 .diaggrid {{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }}
-.code {{ background:#0c111c; border:1px solid #243050; border-radius:8px;
+.code {{ background:#f0f3f9; border:1px solid var(--line); border-radius:8px;
   padding:12px 14px; overflow-x:auto; font:12.5px/1.55
-  'SFMono-Regular',Consolas,Menlo,monospace; color:#c8d4ea;
+  'SFMono-Regular',Consolas,Menlo,monospace; color:#22304a;
   white-space:pre; margin:8px 0; }}
-.pseudo {{ background:#0e1626; border:1px solid #2f4270; border-left:4px
+.pseudo {{ background:#faf9ff; border:1px solid #d5cef2; border-left:4px
   solid var(--ac); border-radius:8px; padding:12px 16px; margin:8px 0;
-  font:13.5px/1.7 'Segoe UI',system-ui,sans-serif; color:#d6e0f2; }}
-.pseudo .ph {{ font-weight:700; color:#b9c6e0; }}
+  font:13.5px/1.7 'Segoe UI',system-ui,sans-serif; color:#26314a; }}
+.pseudo .ph {{ font-weight:700; color:#2c3a52; }}
 .pseudo .arrow {{ color:var(--ac); font-weight:700; }}
-.pseudo .kw {{ color:#7cc4ff; font-weight:600; }}
+.pseudo .kw {{ color:#7a4dff; font-weight:600; }}
 .pseudo .cm {{ color:var(--mut); font-size:12.5px; display:block;
   margin:4px 0 0; }}
 .pseudo ol, .pseudo ul {{ margin:6px 0; padding-left:22px; }}
 .pseudo li {{ margin:3px 0; }}
 .badge {{ display:inline-block; font-size:12px; padding:2px 10px;
   border-radius:20px; margin-right:6px; }}
-.b-done {{ background:#12271c; color:var(--ok); border:1px solid var(--ok); }}
-.b-run {{ background:#2a2410; color:var(--warn); border:1px solid var(--warn); }}
+.b-done {{ background:#e9f7ef; color:var(--ok); border:1px solid #7fc99a; }}
+.b-run {{ background:#fdf3e2; color:var(--warn); border:1px solid #e3b45f; }}
 .b-wait {{ background:var(--card); color:var(--mut); border:1px solid var(--mut); }}
 .kpigr {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
   gap:10px; margin:10px 0; }}
 .figgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(440px,1fr));
   gap:10px; margin:10px 0; }}
-.figgrid img {{ width:100%; border-radius:8px; border:1px solid #2a3550;
+.figgrid img {{ width:100%; border-radius:8px; border:1px solid var(--line);
   display:block; }}
 .figcap {{ color:var(--mut); font-size:12.5px; margin:4px 0 10px; }}
 </style></head><body><div class="wrap">
@@ -1228,7 +1244,7 @@ code {{ background:#1d2740; padding:1px 5px; border-radius:4px;
 ① <b>2 스트레스 테스트</b> — "어느 모듈이 실시간 병목인가"를 숫자로 확인
 → CNN(인코더+디코더)이 병목임을 근거로.
 ② <b>3 성능 진단·수정</b> — RL 학습이 신호를 못 받는 문제(adv_std 0.016 =
-플러)를 진단하고 픽셀 단위 보상으로 고친 뒤, <b>같은 눈금자</b>로
+노이즈)를 진단하고 픽셀 단위 보상으로 고친 뒤, <b>같은 기준</b>으로
 baseline과 비교하는 방법.
 ③ <b>4 경량화</b> — 병목인 CNN 폭을 단계적으로 줄이는 4개 변종을
 학습(warm-start 체인)하고, <b>RL 보상 게이트</b>로 "보상이 유지되는 가장
@@ -1261,7 +1277,7 @@ dice_agreement (0~1). "teacher의 눈과 얼마나 같은가를" 잰 값.</td></
 <tr><td><b>dice_proxy</b></td>
 <td><b>내적 일관성 지표</b>. 경량화 단계에서 student의 softmax와
 동결된 정책(gazer_ep9) softmax 사이의 dice. teacher에 대한 품질이
-아니라 "policy를 얼마나 흉내 내나"를 잰 값이라 0.99가 구조적으로
+아니라 "policy를 얼마나 재현하는가"를 잰 값이라 0.99가 구조적으로
 기대되는 수치 (상세: §4-3 주석).</td></tr>
 <tr><td><b>GRPO / advantage / reward</b></td>
 <td>그룹 상대 강화학습. 같은 프레임 G개 샘플(롤아웃)을 뽑아,
@@ -1273,9 +1289,10 @@ dice_agreement (0~1). "teacher의 눈과 얼마나 같은가를" 잰 값.</td></
 본 실험은 "RL 보상이 teacher−0.01 이상 유지되는 가장 가벼운 폭"을
 고르는 게이트(§4-2)로 종료점을 정합니다.</td></tr>
 <tr><td><b>warm-start 체인</b></td>
-<td>경량화 변종을 "교사(e32d32) → e32d16 → e32d8 → e16d16 → e16d8"
-순으로, 각 단계가 <b>바로 이전 단계의 best 가중치</b>에서 시작해
-점진적으로 capacity를 빼는 훈련 순서.</td></tr>
+<td>경량화 변종을 "풀 모델(e32d32, gazer_ep9) → e32d16 → e32d8 →
+e16d16 → e16d8" 순으로, 각 단계가 <b>바로 이전 단계의 best
+가중치</b>에서 시작해 점진적으로 모델 크기를 줄여가는 훈련
+순서입니다.</td></tr>
 <tr><td><b>시연 예산 (4.17 ms)</b></td>
 <td>최종 목표: 단일 4090에서 T=8, 아이캠 2스트림 × 120Hz → GPU가
 스트림 1프레임을 소화할 수 있는 시간 = 1000/(2×120) ms. 이를 넘는
@@ -1521,7 +1538,7 @@ RL 보상이 유지되도록 연산 병목 모듈을 annealing</td>
   1스트림 실측 {_ms1:.2f} ms → 스트림당 예산의 {_rat:.1f}배 초과 (FIFO 전 T=3: 80% 프레임 탈락 기록)</td></tr>
 <tr><td>3</td><td>성능 진단 + 최적 파라미터</td>
   <td><span class="badge b-run">진행 중</span></td>
-  <td>신호 소실 진단(adv_std 0.016=플러) → per-pixel dense GRPO + τ1.5/G16 적용.
+  <td>신호 소실 진단(adv_std 0.016=노이즈 바닥) → per-pixel dense GRPO + τ1.5/G16 적용.
   dense 경로 재학습 phase0 진행 중, ep1 신호 확인 대기(adv_std≫0.016, neg_pg≠0)</td></tr>
 <tr><td>4</td><td>경량화 + Annealing (실험 실행)</td>
   <td><span class="badge b-run">실행 중</span></td>
