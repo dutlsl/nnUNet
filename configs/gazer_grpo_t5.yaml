@@ -51,6 +51,7 @@ teacher:
   use_geom: true           # per-class: sclera box+point, iris box, pupil text-only
   max_cache_frames: 73800  # in-RAM fp16 reward-landscape cache (~118GB < 251GB RAM)
   precompute: true         # Phase 0: build the full reward landscape before training
+  phase0_gpus: [1]         # 2026-10-29: GPU0 is owned by the distill chain -> phase0 on GPU1 only
   ref_batch: 16            # model_ref self-seg batch size inside each phase0 worker
 
 grpo:
@@ -64,6 +65,7 @@ grpo:
   adv_clip: 5.0            # advantage magnitude clip
   beta_kl: 0.05
   kl_schedule: [0.05, 0.01]   # exact per-pixel KL anchor, anneal over the run
+  beta_ent: 0.05             # entropy bonus (2026-10-29 anti-collapse; run 20261027_170622)
   ref_ema_tau: 0.99
   ntp_epochs: 0            # no NTP stage (GRPO only)
   grpo_epochs: 150

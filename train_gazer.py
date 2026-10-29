@@ -408,26 +408,32 @@ def precompute_reward_landscape(cfg, cfg_path: str, train_ds, val_ds,
     frozen semantic-init eye boxes); computing it in a warm-up phase removes
     the serial SAM3 bottleneck that idles the policy GPU during epoch 1.
     RAM-only — nothing touches disk (plan §7.0).
+
+    teacher.phase0_gpus (optional list of gpu indices) restricts the workers
+    to specific GPUs — 2026-10-29: the annealing distill chain owns GPU0, so
+    phase0 runs on [1] only and leaves the chain's throughput untouched.
+    Default: all visible GPUs (previous behaviour).
     """
-    num_gpus = torch.cuda.device_count()
+    gpus = list(getattr(cfg.teacher, "phase0_gpus", None) or
+                list(range(torch.cuda.device_count())))
     merged = _collect_frames(train_ds)
     if val_ds is not None:
         merged.update(_collect_frames(val_ds))      # train/val frame ids disjoint
     keys = sorted(merged)
     n = len(keys)
-    print(f"[phase0] {n} unique frames across {num_gpus} GPUs "
-          f"(est ~{n / num_gpus * 0.85 / 3600:.1f}h at ~0.85 s/frame/GPU)",
+    print(f"[phase0] {n} unique frames across GPUs {gpus} "
+          f"(est ~{n / len(gpus) * 0.85 / 3600:.1f}h at ~0.85 s/frame/GPU)",
           flush=True)
-    logf.write(f"[phase0] {n} unique frames, {num_gpus} GPUs\n"); logf.flush()
+    logf.write(f"[phase0] {n} unique frames, GPUs {gpus}\n"); logf.flush()
 
     items = [(int(k),) + merged[k] for k in keys]
-    halves = [items[i::num_gpus] for i in range(num_gpus)]
+    halves = [items[i::len(gpus)] for i in range(len(gpus))]
     ctx = mp.get_context("spawn")
     result_q, err_q = ctx.Queue(), ctx.Queue()
     procs = []
-    for gi in range(num_gpus):
+    for slot, gi in enumerate(gpus):
         p = ctx.Process(target=_phase0_worker,
-                        args=(gi, cfg_path, halves[gi], result_q, err_q,
+                        args=(gi, cfg_path, halves[slot], result_q, err_q,
                               int(getattr(cfg.teacher, "ref_batch", 16))))
         p.start()
         procs.append(p)
@@ -443,7 +449,7 @@ def precompute_reward_landscape(cfg, cfg_path: str, train_ds, val_ds,
         try:
             item = result_q.get(timeout=1.0)
         except queue.Empty:
-            for gi, p in enumerate(procs):
+            for gi, p in zip(gpus, procs):
                 if p.is_alive():
                     continue
                 # A cleanly-finished worker (exitcode==0, __DONE__ seen) is
@@ -574,14 +580,19 @@ def grpo_step(model, model_ref, batch, teacher, cfg, device, device_ref_idx,
     # 8) Loss: dense policy gradient + exact per-pixel KL anchor (grad ->
     # backbone only; KL uses the full categorical dists, per-frame).
     kl = pixel_kl(logp_f, logp_ref_f)                             # [N], grad
-    loss = grpo_loss_fn.dense(logp_dense, logp_ref_dense, A_dense, kl)
+    # Full-categorical per-pixel entropy WITH grad (the gathered logp_dense
+    # only carries the sampled class, not a distribution). Feeds the
+    # 2026-10-29 anti-collapse term in GRPOLoss.dense.
+    entropy_t = -(logp.exp() * logp).sum(dim=2).mean()
+    loss = grpo_loss_fn.dense(logp_dense, logp_ref_dense, A_dense, kl,
+                              entropy=entropy_t)
     loss.backward()
 
     with torch.no_grad():
         neg_pg = float(-(torch.exp((logp_dense - logp_ref_dense).clamp(-20, 20))
                         * A_dense).mean().item())
         kl_val = GRPOLoss.kl_divergence(logp_f, logp_ref_f)
-        entropy = float(-(logp.exp() * logp).sum(dim=2).mean().item())
+        entropy = float(entropy_t.item())
     return {
         "grpo/loss": float(loss.item()),
         "grpo/neg_pg": neg_pg,
@@ -763,7 +774,8 @@ def main():
     total_epochs = ntp_epochs + grpo_epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(1, total_epochs))
-    grpo_loss_fn = GRPOLoss(beta_kl=cfg.grpo.beta_kl, lambda_q=0.0)
+    grpo_loss_fn = GRPOLoss(beta_kl=cfg.grpo.beta_kl, lambda_q=0.0,
+                            beta_ent=float(getattr(cfg.grpo, "beta_ent", 0.0)))
 
     log_every = cfg.training.log_every
     best_val = -1.0

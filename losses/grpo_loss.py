@@ -52,10 +52,12 @@ def pixel_kl(
 
 
 class GRPOLoss(nn.Module):
-    def __init__(self, beta_kl: float = 0.05, lambda_q: float = 0.0):
+    def __init__(self, beta_kl: float = 0.05, lambda_q: float = 0.0,
+                 beta_ent: float = 0.0):
         super().__init__()
         self.beta_kl = beta_kl
         self.lambda_q = lambda_q
+        self.beta_ent = beta_ent
 
     def forward(
         self,
@@ -97,6 +99,7 @@ class GRPOLoss(nn.Module):
         logp_ref: torch.Tensor,
         advantage: torch.Tensor,
         kl: torch.Tensor,
+        entropy: torch.Tensor = None,
     ) -> torch.Tensor:
         """Dense per-pixel variant (replaces the pixel-mean path).
 
@@ -106,6 +109,13 @@ class GRPOLoss(nn.Module):
                          advantage (dense_pixel_advantage)
         kl:              [N] float32 exact per-pixel KL(pi||pi_ref), grad —
                          expanded to [G, N] for the shared KL term
+        entropy:        scalar float32, GRAD — mean full-categorical
+                         per-pixel entropy of the policy, computed in
+                         grpo_step from the [B,T,C,H,W] log-softmax (the
+                         gathered logp above carries only the sampled class
+                         and is not a distribution, so the entropy cannot be
+                         derived here). Used by the 2026-10-29 anti-collapse
+                         term (see below).
         All three terms are a plain mean, so the per-pixel normalization
         carries over unchanged.
         """
@@ -117,6 +127,18 @@ class GRPOLoss(nn.Module):
         pg = -(ratio * adv).mean()
         # KL is per-frame (same for every sample g); expand and mean.
         kl = kl.float().mean()
+        # 2026-10-29 anti-collapse term. Raw-centering advantage is exactly
+        # 0 at confident pixels, so once the policy becomes near-one-hot the
+        # G rollouts agree per pixel -> A = 0 everywhere and the policy
+        # gradient vanishes (observed run 20261027_170622: ep1 VAL 0.7934,
+        # then grad/norm=0.0000, entropy=0.0000 from ep2 on). Minimizing
+        # -beta_ent * H(pi) maximizes the policy's per-pixel entropy, so
+        # minority classes get probability mass back, minority rollouts
+        # reappear, and the group variance (the only GRPO signal under raw
+        # centering) recovers. beta_kl alone (0.05 -> 0.01) was too weak to
+        # counter the one-hot pull.
+        if entropy is not None and self.beta_ent > 0.0:
+            return pg + self.beta_kl * kl - self.beta_ent * entropy.float()
         return pg + self.beta_kl * kl
 
     @staticmethod

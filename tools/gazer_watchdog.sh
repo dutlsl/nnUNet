@@ -52,9 +52,13 @@ pgrep -f "nnunet_env/bin/python.*train_gazer\.py.*$CFG" >/dev/null && exit 0
 # (Re)launch fully detached: setsid puts it in its own session so a SIGKILL
 # of the IDE/agent process group cannot reach it. On a clean exit it writes
 # the done marker; on any crash/kill the marker stays absent.
+# 2026-10-29: --gpu 1 (was 0). GPU0 is owned by the annealing distill chain;
+# the GRPO policy (the heavy backward pass) goes to GPU1, leaving only the
+# no-grad model_ref / SAM3 forwards on GPU0. Phase0 likewise runs on GPU1
+# (configs/gazer_grpo_t5.yaml: teacher.phase0_gpus: [1]).
 setsid bash -c "cd '$REPO' && \
   env PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-  $PY -u train_gazer.py --config $CFG --gpu 0 \
+  $PY -u train_gazer.py --config $CFG --gpu 1 \
   >> '$LOG' 2>&1 && touch '$DONE'" </dev/null >/dev/null 2>&1 &
 
 exit 0
